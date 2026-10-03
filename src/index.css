@@ -109,7 +109,8 @@
 
   /* Маркер (DESIGN §6.2): подсветка нижних ~70% строки, лёгкий наклон верхней кромки (угол градиента 179deg),
      отступ 0 .12em, при переносе на новую строку оформление повторяется. Цвет текста под маркером не меняется. */
-  .marker {
+  .marker,
+  .marker-chip {
     margin: 0 -0.12em;
     padding: 0 0.12em;
     border-radius: var(--radius-mark);
@@ -119,6 +120,9 @@
     background-size: 100% 100%;
     box-decoration-break: clone;
     -webkit-box-decoration-break: clone;
+  }
+  /* Фраза в тексте блока (Split) нажимается, чипс и фраза в скелете нет. */
+  .marker {
     cursor: pointer;
   }
   /* Подсказка, что нажатие уберёт подсветку. */
@@ -128,10 +132,12 @@
   }
   /* Появление: ширина растёт слева направо за 250 мс, фразы блока по очереди с шагом 60 мс.
      Единственное место с последовательным появлением. Запускается, когда блок попал в окно просмотра. */
-  .marker[data-reveal='pending'] {
+  .marker[data-reveal='pending'],
+  .marker-chip[data-reveal='pending'] {
     background-size: 0% 100%;
   }
-  .marker[data-reveal='in'] {
+  .marker[data-reveal='in'],
+  .marker-chip[data-reveal='in'] {
     animation: marker-in 250ms var(--ease-standard) both;
     animation-delay: calc(var(--i, 0) * 60ms);
   }
@@ -144,7 +150,8 @@
     }
   }
   @media (prefers-reduced-motion: reduce) {
-    .marker[data-reveal] {
+    .marker[data-reveal],
+    .marker-chip[data-reveal] {
       animation: none;
       background-size: 100% 100%;
     }
@@ -280,6 +287,69 @@
     overflow-y: auto;
     overscroll-behavior: contain;
   }
+  /* Низкий экран (экранная клавиатура на телефоне). Контейнер сессии привязан к visualViewport, поэтому его высота
+     честно сжимается клавиатурой, чего про media query на iOS сказать нельзя. Освобождаем место под письмо и подсказки:
+     прячем строку «1 из 3» и «К списку» (линия прогресса остаётся) и делаем исходник при подглядывании мельче,
+     чтобы блок помещался целиком: палец занят кнопкой, прокручивать некому. */
+  .session-root {
+    container-type: size;
+  }
+  /* Подсказки (DESIGN §6.3, §6.4). Плашка вместо слова: ширина задаётся в em по длине слова (длина × .52em),
+     текста внутри нет. */
+  .plate {
+    display: inline-block;
+    height: 0.55em;
+    border-radius: var(--radius-mark);
+    background: var(--line);
+    vertical-align: middle;
+  }
+  /* Подглядывание: проявляется за 160 мс, гаснет за 250 мс, blur 8px → 0 и обратно. */
+  .peek[data-state='in'] {
+    animation: peek-in 160ms var(--ease-standard) both;
+  }
+  .peek[data-state='out'] {
+    animation: peek-out 250ms var(--ease-standard) both;
+  }
+  @keyframes peek-in {
+    from {
+      opacity: 0;
+      filter: blur(8px);
+    }
+    to {
+      opacity: 1;
+      filter: blur(0);
+    }
+  }
+  @keyframes peek-out {
+    from {
+      opacity: 1;
+      filter: blur(0);
+    }
+    to {
+      opacity: 0;
+      filter: blur(8px);
+    }
+  }
+  /* Кнопка удержания: ни меню, ни выделения текста, ни прокрутки при долгом нажатии (iOS и Android). */
+  .hold-button {
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  /* Панель подсказок на мышке прячется вместе с верхней панелью (SPEC §3.3), на сенсорных видна всегда:
+     без мыши открыть её иначе нечем. */
+  @media (hover: hover) and (pointer: fine) {
+    .hint-bar {
+      transition: opacity 200ms var(--ease-standard);
+    }
+    .hint-bar[data-hidden='true'] {
+      opacity: 0;
+      pointer-events: none;
+    }
+  }
+
   /* Подсказки про клавиши только там, где есть физическая клавиатура. */
   .kbd-hint {
     display: none;
@@ -302,5 +372,21 @@
     .reading-column {
       font-size: 18px;
     }
+  }
+}
+
+/* Низкий экран (подробнее у .session-root). Эти правила вне слоёв: утилита flex у строки лежит в слое utilities,
+   который старше components, и перебила бы display: none. */
+@media (pointer: coarse) {
+  @container (max-height: 520px) {
+    .session-top {
+      display: none;
+    }
+  }
+}
+@container (max-height: 520px) {
+  .peek .reading-column {
+    font-size: 16px;
+    line-height: 1.5;
   }
 }

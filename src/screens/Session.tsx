@@ -1,7 +1,10 @@
 import { motion, useReducedMotion } from 'motion/react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { SaveErrorNotice } from '../components/SaveErrorNotice';
+import { HintBar } from '../components/session/HintBar';
+import { HintPanel } from '../components/session/HintPanel';
 import { PreviousText } from '../components/session/PreviousText';
+import { keepFocus } from '../components/session/keepFocus';
 import { ReadingText } from '../components/session/ReadingText';
 import { WritingField, type FieldCounts } from '../components/session/WritingField';
 import { runDissolve, type DissolveRun } from '../components/session/dissolveAnimation';
@@ -10,6 +13,7 @@ import { useVisualViewport } from '../components/session/useVisualViewport';
 import { ru } from '../i18n/ru';
 import { advance } from '../lib/activity';
 import { BLOCK_IN_MS, BLOCK_IN_SHIFT_PX, MAX_DISSOLVE_MS, PAUSE_MS } from '../lib/dissolve';
+import { PEEK_MAX_MS, endPeek as countPeekTime, openLevel, startPeek as countPeek, type HintLevel } from '../lib/hints';
 import { canFinish, completeBlock, frontierIndex, initialPhase, patchBlock, startWriting, type Phase } from '../lib/session';
 import { detectLang } from '../lib/tokens';
 import type { Block, Doc } from '../lib/types';
@@ -18,6 +22,18 @@ import { useApp } from '../store/app';
 const primary =
   'min-h-12 rounded-surface bg-ink px-8 text-ui font-medium text-bg transition-colors duration-[120ms] hover:bg-ink-hover';
 const quiet = 'min-h-10 rounded-surface px-2 text-meta text-text-dim transition-colors duration-[120ms] hover:text-text';
+
+/** Горячие клавиши подсказок по KeyboardEvent.code, чтобы не зависеть от раскладки (SPEC §3.5). */
+const HINT_KEYS: Record<string, 1 | 2 | 3 | 4> = {
+  Digit1: 1, Digit2: 2, Digit3: 3, Digit4: 4,
+  Numpad1: 1, Numpad2: 2, Numpad3: 3, Numpad4: 4,
+};
+const PEEK_END_KEYS = new Set(['Digit4', 'Numpad4', 'AltLeft', 'AltRight']);
+const PEEK_FADE_MS = 250;
+const now = () => Date.now();
+
+/** Физическая клавиатура есть там, где есть наведение и точный указатель; на телефоне про Alt не говорим. */
+const hasPhysicalKeyboard = () => typeof matchMedia === 'function' && matchMedia('(hover: hover) and (pointer: fine)').matches;
 
 const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 
@@ -43,6 +59,8 @@ function Stage({ doc, index, onEdit }: StageProps) {
   const [phase, setPhase] = useState<Phase>(() => initialPhase(block));
   const [draft, setDraft] = useState(block.userText);
   const [message, setMessage] = useState<'empty' | 'paste' | null>(null);
+  const [open, setOpen] = useState<Record<HintLevel, boolean>>({ 1: false, 2: false, 3: false });
+  const [peek, setPeek] = useState<'off' | 'in' | 'out'>('off');
 
   const root = useRef<HTMLDivElement>(null);
   const scroll = useRef<HTMLDivElement>(null);
@@ -52,6 +70,9 @@ function Stage({ doc, index, onEdit }: StageProps) {
   const clock = useRef<number | null>(null);
   const run = useRef<DissolveRun | null>(null);
   const messageTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const peekStart = useRef<number | null>(null);
+  const peekLimit = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const peekFade = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useVisualViewport(root);
   const chromeVisible = useIdleHide(phase === 'writing');
@@ -91,6 +112,42 @@ function Stage({ doc, index, onEdit }: StageProps) {
       pastedChars: b.pastedChars + counts.pasted,
       activeMs: b.activeMs + ms,
     }));
+  };
+
+  // --- подсказки (SPEC §3.4) ---------------------------------------------------------------
+
+  /** Ступени 1–3 включаются и выключаются. В статистику идёт каждое открытие. */
+  const toggleLevel = (level: HintLevel) => {
+    if (phase !== 'writing') return;
+    const opening = !open[level];
+    setOpen((o) => ({ ...o, [level]: opening }));
+    if (opening) patch((b) => ({ hints: openLevel(b.hints, level) }));
+  };
+
+  /** Ступень 4: одно удержание = один peek. Длится, пока держат, но не больше PEEK_MAX_MS. */
+  const beginPeek = () => {
+    if (phase !== 'writing' || peekStart.current !== null) return;
+    peekStart.current = now();
+    clearTimeout(peekFade.current);
+    setPeek('in');
+    patch((b) => ({ hints: countPeek(b.hints) }));
+    peekLimit.current = setTimeout(() => finishPeek(), PEEK_MAX_MS);
+  };
+
+  const finishPeek = () => {
+    const started = peekStart.current;
+    if (started === null) return;
+    peekStart.current = null;
+    clearTimeout(peekLimit.current);
+    setPeek('out');
+    peekFade.current = setTimeout(() => setPeek('off'), PEEK_FADE_MS);
+    patch((b) => ({ hints: countPeekTime(b.hints, now() - started) }));
+  };
+
+  /** Esc: закрыть открытые подсказки. */
+  const closeHints = () => {
+    setOpen({ 1: false, 2: false, 3: false });
+    finishPeek();
   };
 
   // --- переходы ----------------------------------------------------------------------------
@@ -133,9 +190,9 @@ function Stage({ doc, index, onEdit }: StageProps) {
   };
 
   // Свежие обработчики для слушателей, которые подписываются один раз.
-  const api = useRef({ phase, remember, done, flushActive });
+  const api = useRef({ phase, remember, done, flushActive, toggleLevel, beginPeek, finishPeek, closeHints });
   useEffect(() => {
-    api.current = { phase, remember, done, flushActive };
+    api.current = { phase, remember, done, flushActive, toggleLevel, beginPeek, finishPeek, closeHints };
   });
 
   // --- растворение -------------------------------------------------------------------------
@@ -187,6 +244,9 @@ function Stage({ doc, index, onEdit }: StageProps) {
     return () => {
       html.style.overflow = prev;
       html.style.overscrollBehavior = '';
+      api.current.finishPeek();
+      clearTimeout(peekLimit.current);
+      clearTimeout(peekFade.current);
       api.current.flushActive();
     };
     // только при появлении и уходе компонента
@@ -198,6 +258,7 @@ function Stage({ doc, index, onEdit }: StageProps) {
   useEffect(() => {
     const onVisibility = () => {
       if (document.visibilityState === 'hidden') {
+        api.current.finishPeek();
         api.current.flushActive();
         clock.current = null;
         if (api.current.phase === 'dissolving') {
@@ -208,8 +269,13 @@ function Stage({ doc, index, onEdit }: StageProps) {
         clock.current = Date.now();
       }
     };
+    const onWindowBlur = () => api.current.finishPeek();
     document.addEventListener('visibilitychange', onVisibility);
-    return () => document.removeEventListener('visibilitychange', onVisibility);
+    window.addEventListener('blur', onWindowBlur);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('blur', onWindowBlur);
+    };
   }, []);
 
   // Горячие клавиши по KeyboardEvent.code (SPEC §3.5): Space в reading, Ctrl/Cmd+Enter в writing.
@@ -227,22 +293,41 @@ function Stage({ doc, index, onEdit }: StageProps) {
       } else if ((e.code === 'Enter' || e.code === 'NumpadEnter') && (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && api.current.phase === 'writing') {
         e.preventDefault();
         api.current.done();
+      } else if (api.current.phase === 'writing') {
+        // Alt+1, Alt+2, Alt+3: ступени подсказок, Alt+4 (удерживать): подглядеть, Esc: закрыть подсказки.
+        const level = HINT_KEYS[e.code];
+        if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && level) {
+          e.preventDefault();
+          if (level === 4) api.current.beginPeek();
+          else api.current.toggleLevel(level);
+        } else if (e.code === 'Escape' && bare) {
+          e.preventDefault();
+          api.current.closeHints();
+        }
       }
     };
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (PEEK_END_KEYS.has(e.code)) api.current.finishPeek();
+    };
     window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+    };
   }, []);
 
   // --- разметка ----------------------------------------------------------------------------
 
   const writing = phase === 'writing';
+  const anyOpen = open[1] || open[2] || open[3];
   const progress = ru.progress(index + 1, total);
 
   return (
     <div
       ref={root}
       data-phase={phase}
-      className="fixed inset-x-0 z-50 flex flex-col bg-bg text-text"
+      className="session-root fixed inset-x-0 z-50 flex flex-col bg-bg text-text"
       style={{ top: 'var(--vv-top, 0px)', height: 'var(--vv-h, 100dvh)' }}
     >
       <h1 className="sr-only">{ru.screens.session}</h1>
@@ -251,7 +336,7 @@ function Stage({ doc, index, onEdit }: StageProps) {
         <div className="h-full bg-ink" style={{ width: `${((index + 1) / total) * 100}%` }} />
       </div>
 
-      <div className="flex shrink-0 items-center justify-between gap-2 px-4 pt-2">
+      <div className="session-top flex shrink-0 items-center justify-between gap-2 px-4 pt-2">
         <span className="text-meta tabular-nums text-text-dim">{progress}</span>
         <div className="session-chrome -mr-2 flex flex-wrap justify-end" data-hidden={!chromeVisible}>
           {index > 0 && (
@@ -267,55 +352,88 @@ function Stage({ doc, index, onEdit }: StageProps) {
 
       <SaveErrorNotice />
 
-      <div className="relative min-h-0 flex-1">
-        <div ref={scroll} className="absolute inset-0 overflow-y-auto overscroll-contain">
-          <div className="mx-auto flex min-h-full w-full max-w-[44rem] flex-col px-4">
-            <div className="writing-layer my-auto py-6" data-shown={writing}>
-              <PreviousText texts={previous} />
-              <WritingField
-                fieldRef={field}
-                scrollRef={scroll}
-                value={draft}
-                blocked={!writing}
-                allowPaste={settings.allowPaste}
-                lang={lang}
-                mono={settings.writingFont === 'mono'}
-                label={ru.session.fieldLabel}
-                onChange={onFieldChange}
-                onPasteBlocked={() => showMessage('paste')}
-              />
-              {message && (
-                <p role="status" className="mt-2 text-meta text-text-dim">
-                  {message === 'empty' ? ru.session.empty : ru.session.pasteOff}
-                </p>
-              )}
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        {/* Ступени 1–3 закреплены над полем, а не под ним: экранная клавиатура их не закроет,
+            и поле с каретками остаётся под рукой. На низком экране панель прокручивается. */}
+        {writing && anyOpen && (
+          <div className="shrink-0 overflow-y-auto overscroll-contain border-b border-line" style={{ maxHeight: 'calc(var(--vv-h, 100dvh) * 0.38)' }}>
+            <div className="mx-auto w-full max-w-[44rem] px-4 py-3">
+              <HintPanel text={block.sourceText} phrases={block.keyphrases} lang={lang} open={open} />
             </div>
           </div>
-        </div>
+        )}
 
-        {!writing && (
-          <div className="absolute inset-0 overflow-y-auto overscroll-contain">
+        <div className="relative min-h-0 flex-1">
+          <div ref={scroll} className="absolute inset-0 overflow-y-auto overscroll-contain">
+            <div className="mx-auto flex min-h-full w-full max-w-[44rem] flex-col px-4">
+              <div className="writing-layer my-auto py-6" data-shown={writing}>
+                <PreviousText texts={previous} />
+                <WritingField
+                  fieldRef={field}
+                  scrollRef={scroll}
+                  value={draft}
+                  blocked={!writing}
+                  allowPaste={settings.allowPaste}
+                  lang={lang}
+                  mono={settings.writingFont === 'mono'}
+                  label={ru.session.fieldLabel}
+                  onChange={onFieldChange}
+                  onPasteBlocked={() => showMessage('paste')}
+                />
+                {message && (
+                  <p role="status" className="mt-2 text-meta text-text-dim">
+                    {message === 'empty' ? (hasPhysicalKeyboard() ? ru.session.empty : ru.session.emptyTouch) : ru.session.pasteOff}
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {!writing && (
+            <div className="absolute inset-0 overflow-y-auto overscroll-contain">
+              <div className="mx-auto flex min-h-full w-full max-w-[44rem] flex-col justify-center px-4 py-6">
+                <motion.div
+                  initial={reducedMotion ? { opacity: 0 } : { opacity: 0, y: BLOCK_IN_SHIFT_PX }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: BLOCK_IN_MS / 1000, ease: [0.4, 0, 0.2, 1] }}
+                >
+                  <ReadingText text={block.sourceText} kind={block.kind} innerRef={reading} />
+                </motion.div>
+              </div>
+            </div>
+          )}
+
+          </div>
+        {/* Ступень 4: исходник поверх панели подсказок и области письма, пока держат кнопку. Поле под ним сохраняет
+            фокус, клавиатура не закрывается. Перекрываем и панель: на низком окне (клавиатура) места под ней мало.
+            Кнопку держат одним пальцем, а длинный блок можно прокрутить другим. */}
+        {peek !== 'off' && (
+          <div data-peek className="peek absolute inset-0 select-none overflow-y-auto overscroll-contain bg-bg" data-state={peek}>
             <div className="mx-auto flex min-h-full w-full max-w-[44rem] flex-col justify-center px-4 py-6">
-              <motion.div
-                initial={reducedMotion ? { opacity: 0 } : { opacity: 0, y: BLOCK_IN_SHIFT_PX }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: BLOCK_IN_MS / 1000, ease: [0.4, 0, 0.2, 1] }}
-              >
-                <ReadingText text={block.sourceText} kind={block.kind} innerRef={reading} />
-              </motion.div>
+              <div className={`reading-column max-w-none text-text ${block.kind === 'heading' ? 'font-medium' : ''}`}>{block.sourceText}</div>
             </div>
           </div>
         )}
       </div>
 
       <div className="shrink-0 px-4 pb-[max(12px,env(safe-area-inset-bottom))] pt-3">
-        <div className={`mx-auto flex w-full max-w-[44rem] items-center gap-4 ${writing ? 'justify-end' : 'justify-center'}`}>
+        <div className={`mx-auto w-full max-w-[44rem] ${writing ? 'sm:flex sm:items-center sm:justify-between sm:gap-4' : 'flex items-center justify-center gap-4'}`}>
           {writing ? (
             <>
-              <button type="button" className={`${primary} flex-1 sm:flex-none`} onClick={done}>
-                {ru.session.done}
-              </button>
-              <span className="kbd-hint text-meta text-text-dim">{isMac ? ru.session.doneKeyMac : ru.session.doneKey}</span>
+              <HintBar
+                open={open}
+                peeking={peek === 'in'}
+                hidden={!chromeVisible && !anyOpen && peek === 'off'}
+                onToggle={toggleLevel}
+                onPeekStart={beginPeek}
+                onPeekEnd={finishPeek}
+              />
+              <div className="mt-2 flex items-center gap-4 sm:mt-0">
+                <button type="button" className={`${primary} flex-1 sm:flex-none`} onPointerDown={keepFocus} onMouseDown={keepFocus} onClick={done}>
+                  {ru.session.done}
+                </button>
+                <span className="kbd-hint text-meta text-text-dim">{isMac ? ru.session.doneKeyMac : ru.session.doneKey}</span>
+              </div>
             </>
           ) : (
             <>

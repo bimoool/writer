@@ -19,6 +19,8 @@ export default tseslint.config(
   {
     // UI-слой: без захардкоженного текста и hex-цветов (CLAUDE.md, правила работы).
     files: ['src/screens/**/*.tsx', 'src/components/**/*.tsx', 'src/App.tsx'],
+    // Описания и данные тестов пишутся по-русски, это не строки интерфейса.
+    ignores: ['**/*.test.{ts,tsx}'],
     rules: {
       'no-restricted-syntax': [
         'error',
