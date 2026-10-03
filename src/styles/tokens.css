@@ -43,6 +43,7 @@
 }
 
 :root {
+  --ink-hover: color-mix(in oklab, var(--ink) 86%, var(--text));
   --marker-tint: color-mix(in srgb, var(--marker) calc(var(--marker-alpha) * 100%), transparent);
   --radius-surface: 6px;
   --radius-mark: 3px;

@@ -126,6 +126,65 @@ describe('закрытие вкладки', () => {
   });
 });
 
+describe('аварийный снимок при закрытии вкладки', () => {
+  const stored = () => JSON.parse(localStorage.getItem('svoimi:rescue') ?? '[]') as Array<{ id: string }>;
+
+  it('в снимок попадает только документ с несохранёнными правками, а не вся база', async () => {
+    const s = useApp.getState();
+    const a = s.createDocument('Первый документ для проверки снимка.');
+    s.createDocument('Второй документ для проверки снимка.');
+    s.createDocument('Третий документ для проверки снимка.');
+    await useApp.getState().flush();
+    expect(await db.docs.count()).toBe(3);
+
+    useApp.getState().updateDoc(a.id, (d) => ({ ...d, title: 'Правка' }));
+    writeRescue();
+    expect(stored().map((d) => d.id)).toEqual([a.id]);
+  });
+
+  it('когда всё сохранено, снимок не пишется', async () => {
+    useApp.getState().createDocument('Документ без несохранённых правок.');
+    await useApp.getState().flush();
+    writeRescue();
+    expect(localStorage.getItem('svoimi:rescue')).toBeNull();
+  });
+
+  it('документ, который записывается прямо сейчас, тоже попадает в снимок', async () => {
+    const doc = useApp.getState().createDocument('Документ, который уйдёт в запись при закрытии вкладки.');
+    let release!: () => void;
+    vi.spyOn(db.docs, 'bulkPut').mockImplementationOnce(() => new Promise<string>((r) => (release = () => r('')))  as never);
+    const flushing = useApp.getState().flush(); // запись началась, но не завершилась
+    await new Promise((r) => setTimeout(r, 0));
+    writeRescue();
+    expect(stored().map((d) => d.id)).toEqual([doc.id]);
+    release();
+    await flushing;
+  });
+
+  it('переполненный localStorage не ломает закрытие вкладки', () => {
+    const doc = useApp.getState().createDocument('Документ для проверки переполнения localStorage.');
+    const quota = () => {
+      throw Object.assign(new Error('full'), { name: 'QuotaExceededError' });
+    };
+    vi.stubGlobal('localStorage', { getItem: () => null, setItem: quota, removeItem: () => {} });
+    expect(() => writeRescue()).not.toThrow();
+    expect(useApp.getState().docs[0]!.id).toBe(doc.id);
+  });
+
+  it('недоступный localStorage (SecurityError при обращении) тоже не ломает закрытие', () => {
+    useApp.getState().createDocument('Документ для проверки недоступного localStorage.');
+    vi.stubGlobal(
+      'localStorage',
+      new Proxy({}, {
+        get() {
+          throw Object.assign(new Error('denied'), { name: 'SecurityError' });
+        },
+      }),
+    );
+    expect(() => writeRescue()).not.toThrow();
+  });
+});
+
 describe('ошибки IndexedDB', () => {
   it('ошибка записи показывается, данные остаются в памяти, после успешной повторной записи ошибка снимается', async () => {
     const doc = useApp.getState().createDocument(APPENDIX_A);
@@ -163,6 +222,18 @@ describe('ошибки IndexedDB', () => {
 });
 
 describe('резервная копия через стор', () => {
+  it('загрузка копии не меняет текущие настройки', async () => {
+    useApp.getState().setSettings({ theme: 'light', pressure: 'soft' });
+    const other = { ...DEFAULT_SETTINGS, theme: 'sepia' as const, pressure: 'kamikaze' as const, allowPaste: true };
+    const json = serializeBackup(makeBackup([], other));
+    const parsed = parseBackup(json);
+    if (!parsed.ok) throw new Error('копия не разобралась');
+    expect(parsed.settings).toEqual(other); // формат файла хранит настройки
+    useApp.getState().createDocument('Документ из копии для проверки настроек.');
+    await useApp.getState().importDocs(useApp.getState().docs);
+    expect(useApp.getState().settings).toMatchObject({ theme: 'light', pressure: 'soft', allowPaste: false });
+  });
+
   it('выгрузка, очистка базы и загрузка обратно восстанавливают документы', async () => {
     const s = useApp.getState();
     s.createDocument(APPENDIX_A);
@@ -177,7 +248,7 @@ describe('резервная копия через стор', () => {
 
     const parsed = parseBackup(json);
     if (!parsed.ok) throw new Error('копия не разобралась');
-    await useApp.getState().importDocs(parsed.documents, parsed.settings);
+    await useApp.getState().importDocs(parsed.documents);
     await reload();
     expect(useApp.getState().docs).toEqual(before);
   });

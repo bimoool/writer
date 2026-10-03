@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { APPENDIX_A } from './__fixtures__/appendix-a';
-import { DEFAULT_SETTINGS, createDoc, doneCount, normalizeSettings, titleFromFileName, titleFromSource } from './doc';
+import { DEFAULT_SETTINGS, createDoc, doneCount, isFinished, normalizeSettings, screenForDoc, titleFromFileName, titleFromSource } from './doc';
 
 const seqId = () => {
   let n = 0;
@@ -56,5 +56,21 @@ describe('normalizeSettings', () => {
       pressureDelaySec: 30,
       writingFont: 'mono',
     });
+  });
+});
+
+describe('screenForDoc', () => {
+  it('новый документ ведёт в разбивку, начатый в сессию, готовый в итог', () => {
+    const doc = createDoc(APPENDIX_A);
+    expect(screenForDoc(doc)).toBe('split');
+    doc.blocks[0]!.status = 'writing';
+    expect(screenForDoc(doc)).toBe('session');
+    doc.blocks.forEach((b) => (b.status = 'done'));
+    expect(isFinished(doc)).toBe(true);
+    expect(screenForDoc(doc)).toBe('result');
+  });
+
+  it('документ с finishedAt считается готовым', () => {
+    expect(isFinished({ ...createDoc(APPENDIX_A), finishedAt: 5 })).toBe(true);
   });
 });

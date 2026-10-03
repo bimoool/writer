@@ -15,7 +15,7 @@ export function ThemeSwitcher() {
           role="radio"
           aria-checked={theme === t}
           onClick={() => setTheme(t)}
-          className={`min-h-10 rounded-surface px-3 text-meta transition-colors duration-[120ms] ${
+          className={`min-h-10 rounded-surface px-2 text-meta transition-colors duration-[120ms] ${
             theme === t ? 'text-text' : 'text-text-dim hover:text-text'
           }`}
         >

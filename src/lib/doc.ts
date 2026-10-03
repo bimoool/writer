@@ -4,6 +4,8 @@ import { segment } from './segment';
 import { detectLang, tokenize } from './tokens';
 import type { Block, BlockHints, BlockSize, Doc, Settings } from './types';
 
+export type DocScreen = 'split' | 'session' | 'result';
+
 /** Создание документа и значения по умолчанию (SPEC §4). */
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -82,6 +84,15 @@ export function createDoc(source: string, opts: CreateDocOptions = {}): Doc {
 
 /** Прогресс для списка документов: сколько блоков завершено. */
 export const doneCount = (doc: Doc) => doc.blocks.filter((b) => b.status === 'done').length;
+
+export const isFinished = (doc: Doc) =>
+  doc.finishedAt !== undefined || (doc.blocks.length > 0 && doneCount(doc) === doc.blocks.length);
+
+/** Куда ведёт «Продолжить»: итог для готового, сессия для начатого, разбивка для нового. */
+export function screenForDoc(doc: Doc): DocScreen {
+  if (isFinished(doc)) return 'result';
+  return doc.blocks.some((b) => b.status !== 'pending') ? 'session' : 'split';
+}
 
 const oneOf = <T extends string>(value: unknown, options: readonly T[], fallback: T): T =>
   typeof value === 'string' && (options as readonly string[]).includes(value) ? (value as T) : fallback;

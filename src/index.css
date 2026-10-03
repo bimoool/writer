@@ -14,6 +14,7 @@
   --color-marker: var(--marker);
   --color-marker-tint: var(--marker-tint);
   --color-ink: var(--ink);
+  --color-ink-hover: var(--ink-hover);
   --color-danger: var(--danger);
   --color-transparent: transparent;
 
@@ -72,6 +73,36 @@
 }
 
 @layer components {
+  /* Строка списка документов. Действия: на устройствах с наведением и в широком окне это наложение справа,
+     которое проявляется при наведении и фокусе и не занимает места в сетке (названия не обрезаются,
+     колонки не ездят). На сенсорных и узких экранах действия всегда видны отдельной строкой. */
+  .doc-row {
+    position: relative;
+  }
+  .row-actions {
+    display: flex;
+    margin-left: -0.5rem;
+    justify-self: start;
+  }
+  @media (hover: hover) and (min-width: 40rem) {
+    .row-actions {
+      position: absolute;
+      inset-block: 0;
+      right: 0;
+      align-items: center;
+      margin-left: 0;
+      padding-left: 1rem;
+      background: var(--bg);
+      opacity: 0;
+      transition: opacity 120ms var(--ease-standard);
+    }
+    .doc-row:hover .row-actions,
+    .doc-row:focus-within .row-actions,
+    .row-actions[data-persist] {
+      opacity: 1;
+    }
+  }
+
   /* Колонка для чтения и письма (DESIGN §3): 20px, на мобильных 18px. */
   .reading-column {
     max-width: 64ch;

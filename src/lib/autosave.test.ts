@@ -105,6 +105,25 @@ describe('createAutosaver', () => {
     expect(saver.pending()).toEqual([{ id: 'a', v: 2 }]);
   });
 
+  it('pending включает пачку, которая пишется сейчас, пока запись не завершилась', async () => {
+    let release!: () => void;
+    const save = vi.fn<(items: Item[]) => Promise<void>>().mockImplementationOnce(() => new Promise((r) => (release = r)));
+    save.mockResolvedValue(undefined);
+    const { saver } = setup(save);
+    saver.schedule({ id: 'a', v: 1 });
+    const p = saver.flush();
+    saver.schedule({ id: 'b', v: 1 });
+    saver.schedule({ id: 'a', v: 2 }); // новая версия документа, который пишется
+    expect([...saver.pending()].sort((x, y) => x.id.localeCompare(y.id))).toEqual([
+      { id: 'a', v: 2 },
+      { id: 'b', v: 1 },
+    ]);
+    release();
+    await p;
+    await saver.flush();
+    expect(saver.pending()).toEqual([]);
+  });
+
   it('cancel убирает документ из очереди', async () => {
     const { saver, save } = setup();
     saver.schedule({ id: 'a', v: 1 });

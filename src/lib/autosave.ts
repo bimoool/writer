@@ -16,7 +16,7 @@ export interface Autosaver<T> {
   flush(): Promise<void>;
   /** Убрать документ из очереди (например, при удалении). */
   cancel(id: string): void;
-  /** Несохранённые версии: для аварийного снимка при закрытии вкладки. */
+  /** Несохранённые версии (очередь и пачка, которая пишется прямо сейчас): для аварийного снимка при закрытии вкладки. */
   pending(): T[];
   hasPending(): boolean;
   dispose(): void;
@@ -43,6 +43,8 @@ export function createAutosaver<T>(opts: AutosaverOptions<T>): Autosaver<T> {
   let timer: ReturnType<typeof setTimeout> | null = null;
   let firstChangeAt: number | null = null;
   let inFlight: Promise<void> | null = null;
+  /** Пачка, которая пишется сейчас: транзакцию может оборвать закрытие вкладки, так что она ещё не считается сохранённой. */
+  let writing: Map<string, T> | null = null;
   let retry = baseRetry;
   let disposed = false;
 
@@ -69,6 +71,7 @@ export function createAutosaver<T>(opts: AutosaverOptions<T>): Autosaver<T> {
     firstChangeAt = null;
     const batch = queue;
     queue = new Map();
+    writing = batch;
 
     let failed = false;
     inFlight = opts
@@ -76,11 +79,13 @@ export function createAutosaver<T>(opts: AutosaverOptions<T>): Autosaver<T> {
       .then(
         () => {
           inFlight = null;
+          writing = null;
           retry = baseRetry;
           opts.onSaved?.();
         },
         (error: unknown) => {
           inFlight = null;
+          writing = null;
           failed = true;
           // Возвращаем в очередь только то, что не успели обновить во время записи.
           for (const [id, item] of batch) if (!queue.has(id)) queue.set(id, item);
@@ -114,7 +119,7 @@ export function createAutosaver<T>(opts: AutosaverOptions<T>): Autosaver<T> {
         firstChangeAt = null;
       }
     },
-    pending: () => [...queue.values()],
+    pending: () => [...[...(writing ?? [])].filter(([id]) => !queue.has(id)).map(([, item]) => item), ...queue.values()],
     hasPending: () => queue.size > 0 || inFlight !== null,
     dispose() {
       disposed = true;

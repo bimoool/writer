@@ -26,13 +26,14 @@ interface AppState {
   setSettings(patch: Partial<Settings>): void;
   setTheme(theme: Theme): void;
   createDocument(source: string, opts?: Omit<CreateDocOptions, 'now' | 'newId'>): Doc;
-  openDocument(id: string | null): void;
+  /** Делает документ текущим и, если указан экран, переходит на него. */
+  openDocument(id: string | null, screen?: Screen): void;
   /** Любое изменение документа идёт через эту функцию: она ставит updatedAt и автосохранение. */
   updateDoc(id: string, change: (doc: Doc) => Doc): void;
   renameDoc(id: string, title: string): void;
   deleteDoc(id: string): Promise<void>;
-  /** Записывает документы (импорт резервной копии) и применяет настройки из неё. */
-  importDocs(docs: Doc[], settings?: Settings): Promise<void>;
+  /** Записывает документы из резервной копии. Настройки из копии не применяются. */
+  importDocs(docs: Doc[]): Promise<void>;
   flush(): Promise<void>;
 }
 
@@ -131,8 +132,8 @@ export const useApp = create<AppState>((set, get) => {
       return doc;
     },
 
-    openDocument(id) {
-      set({ currentDocId: id });
+    openDocument(id, screen) {
+      set({ currentDocId: id, ...(screen ? { screen } : {}) });
       persistSession();
     },
 
@@ -157,10 +158,9 @@ export const useApp = create<AppState>((set, get) => {
       await repo?.deleteDoc(id).catch(fail);
     },
 
-    async importDocs(docs, settings) {
+    async importDocs(docs) {
       const ids = new Set(docs.map((d) => d.id));
       set({ docs: sortDocs([...get().docs.filter((d) => !ids.has(d.id)), ...docs]) });
-      if (settings) get().setSettings(settings);
       for (const d of docs) saver?.cancel(d.id);
       await repo?.saveDocs(docs).then(() => set({ saveError: null }), fail);
     },
