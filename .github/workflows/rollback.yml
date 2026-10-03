@@ -1,0 +1,88 @@
+name: Rollback
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: writer-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  SITE_URL: https://writer.bimoool.com
+  BASE_DIR: /var/www/writer
+
+jobs:
+  rollback:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Настроить SSH
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          set -eu
+          umask 077
+          mkdir -p ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+          cat > ~/.ssh/config <<CONF
+          Host deploy-target
+            HostName ${DEPLOY_HOST}
+            User ${DEPLOY_USER}
+            IdentityFile ~/.ssh/deploy_key
+            IdentitiesOnly yes
+            BatchMode yes
+            StrictHostKeyChecking yes
+            UserKnownHostsFile ~/.ssh/known_hosts
+          CONF
+          chmod 600 ~/.ssh/config
+
+      - name: Переключить current на предыдущий релиз
+        run: |
+          set -eu
+          ssh deploy-target bash -s -- "$BASE_DIR" <<'REMOTE'
+          set -eu
+          base=$1
+          cur=$(basename "$(readlink "$base/current")")
+          cd "$base/releases"
+          list=$(for d in *; do [ -d "$d" ] && echo "${d#*-} $d"; done | sort -r | awk '{print $2}')
+          target=""
+          if printf '%s\n' "$list" | grep -qxF -- "$cur"; then
+            target=$(printf '%s\n' "$list" | awk -v c="$cur" 'f && NF {print; exit} $0 == c {f=1}')
+          else
+            target=$(printf '%s\n' "$list" | awk -v c="$cur" 'NF && $0 != c {print; exit}')
+          fi
+          if [ -z "$target" ]; then
+            echo "::error::Предыдущего релиза нет, откатываться некуда (current -> $cur)"
+            exit 1
+          fi
+          echo "current: $cur -> $target"
+          ln -sfn "$base/releases/$target" "$base/.current.new"
+          mv -T "$base/.current.new" "$base/current"
+          REMOTE
+
+      - name: Проверить сайт
+        run: |
+          set -u
+          check() {
+            local headers body
+            headers="$(curl -sSI --max-time 20 -H 'Cache-Control: no-cache' "$SITE_URL")" || return 1
+            printf '%s\n' "$headers" | head -n1 | grep -qE '^HTTP/[0-9.]+ 200' || { echo "Статус не 200"; return 1; }
+            printf '%s\n' "$headers" | grep -qi '^x-robots-tag:' || { echo "Нет заголовка x-robots-tag"; return 1; }
+            body="$(curl -sS --max-time 20 -H 'Cache-Control: no-cache' "$SITE_URL")" || return 1
+            printf '%s' "$body" | grep -qi '<script' || { echo "В теле нет тега script"; return 1; }
+          }
+          for i in 1 2 3; do
+            if check; then echo "Проверка пройдена"; exit 0; fi
+            sleep 5
+          done
+          echo "::error::Проверка сайта после отката не пройдена"
+          exit 1

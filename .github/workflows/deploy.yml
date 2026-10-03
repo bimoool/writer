@@ -1,0 +1,164 @@
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Ветка, тег или коммит для выкладки
+        type: string
+        required: true
+        default: claude/new-session-rnu876
+
+concurrency:
+  group: writer-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  SITE_URL: https://writer.bimoool.com
+  BASE_DIR: /var/www/writer
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Определить версию Node
+        id: node
+        run: |
+          set -eu
+          if [ -f .nvmrc ]; then
+            echo "file=.nvmrc" >> "$GITHUB_OUTPUT"
+          elif [ -f package.json ] && node -e 'process.exit(require("./package.json").engines?.node ? 0 : 1)'; then
+            v=$(node -e 'console.log(require("./package.json").engines.node)')
+            echo "version=$v" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=22" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ steps.node.outputs.version }}
+          node-version-file: ${{ steps.node.outputs.file }}
+          cache: npm
+
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+
+      - name: Настроить SSH
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          set -eu
+          umask 077
+          mkdir -p ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+          cat > ~/.ssh/config <<CONF
+          Host deploy-target
+            HostName ${DEPLOY_HOST}
+            User ${DEPLOY_USER}
+            IdentityFile ~/.ssh/deploy_key
+            IdentitiesOnly yes
+            BatchMode yes
+            StrictHostKeyChecking yes
+            UserKnownHostsFile ~/.ssh/known_hosts
+          CONF
+          chmod 600 ~/.ssh/config
+
+      - name: Загрузить релиз
+        run: |
+          set -eu
+          REL="$(git rev-parse --short=7 HEAD)-$(date -u +%Y%m%dT%H%M%SZ)"
+          echo "REL=$REL" >> "$GITHUB_ENV"
+          ssh deploy-target "mkdir -p '$BASE_DIR/releases/$REL'"
+          tar -C dist -cf - . | ssh deploy-target "tar -xf - -C '$BASE_DIR/releases/$REL'"
+          ssh deploy-target "chmod -R a+rX '$BASE_DIR/releases/$REL'"
+
+      - name: Запомнить текущий релиз
+        run: |
+          set -eu
+          PREV="$(ssh deploy-target "readlink '$BASE_DIR/current' || true")"
+          echo "PREV=$PREV" >> "$GITHUB_ENV"
+          echo "До выкладки current -> ${PREV:-<нет>}"
+
+      - name: Переключить current
+        run: |
+          set -eu
+          ssh deploy-target bash -s -- "$BASE_DIR" "$REL" <<'REMOTE'
+          set -eu
+          base=$1; rel=$2
+          ln -sfn "$base/releases/$rel" "$base/.current.new"
+          mv -T "$base/.current.new" "$base/current"
+          REMOTE
+
+      - name: Удалить старые релизы
+        continue-on-error: true
+        run: |
+          set -eu
+          ssh deploy-target bash -s -- "$BASE_DIR" "$PREV" <<'REMOTE'
+          set -eu
+          base=$1; prev=$2
+          cd "$base/releases"
+          cur=$(basename "$(readlink "$base/current")")
+          prevname=""
+          [ -n "$prev" ] && prevname=$(basename "$prev")
+          n=0
+          for d in *; do
+            [ -d "$d" ] && echo "${d#*-} $d"
+          done | sort -r | while read -r _ name; do
+            n=$((n + 1))
+            if [ "$n" -le 5 ] || [ "$name" = "$cur" ] || [ "$name" = "$prevname" ]; then
+              continue
+            fi
+            echo "Удаляю релиз $name"
+            rm -rf -- "$name"
+          done
+          REMOTE
+
+      - name: Проверить сайт
+        run: |
+          set -u
+          check() {
+            local headers body
+            headers="$(curl -sSI --max-time 20 -H 'Cache-Control: no-cache' "$SITE_URL")" || return 1
+            printf '%s\n' "$headers" | head -n1 | grep -qE '^HTTP/[0-9.]+ 200' || { echo "Статус не 200"; return 1; }
+            printf '%s\n' "$headers" | grep -qi '^x-robots-tag:' || { echo "Нет заголовка x-robots-tag"; return 1; }
+            body="$(curl -sS --max-time 20 -H 'Cache-Control: no-cache' "$SITE_URL")" || return 1
+            printf '%s' "$body" | grep -qi '<script' || { echo "В теле нет тега script"; return 1; }
+          }
+          ok=0
+          for i in 1 2 3; do
+            if check; then ok=1; break; fi
+            sleep 5
+          done
+          if [ "$ok" = 1 ]; then
+            echo "Проверка пройдена"
+            exit 0
+          fi
+          echo "::error::Проверка сайта не пройдена"
+          if [ -z "$PREV" ]; then
+            echo "::error::Откатываться некуда: до выкладки current не существовал"
+            exit 1
+          fi
+          echo "Откат current -> $PREV"
+          ssh deploy-target bash -s -- "$BASE_DIR" "$PREV" <<'REMOTE'
+          set -eu
+          base=$1; prev=$2
+          [ -d "$prev" ] || { echo "Каталог $prev не найден" >&2; exit 1; }
+          ln -sfn "$prev" "$base/.current.new"
+          mv -T "$base/.current.new" "$base/current"
+          REMOTE
+          exit 1
