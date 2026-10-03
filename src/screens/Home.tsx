@@ -4,6 +4,7 @@ import { DocRow } from '../components/DocRow';
 import { useFileDrop } from '../components/useFileDrop';
 import { SAMPLE_TEXT } from '../i18n/sample';
 import { ru } from '../i18n/ru';
+import { FIELD_NAMES, textareaProps } from '../lib/fieldAttrs';
 import { importFile, validateText, type ImportErrorKind } from '../lib/io/import';
 import { useApp } from '../store/app';
 
@@ -56,6 +57,7 @@ export function Home() {
           setError(null);
         }}
         aria-labelledby="home-prompt"
+        {...textareaProps(FIELD_NAMES.source)}
         placeholder={ru.home.placeholder}
         rows={9}
         className={`reading-column block min-h-56 w-full max-w-none resize-y rounded-surface border bg-surface p-4 text-text transition-colors duration-[120ms] placeholder:text-text-ghost ${

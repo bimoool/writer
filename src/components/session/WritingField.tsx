@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, type RefObject } from 'react';
+import { FIELD_NAMES, textareaProps } from '../../lib/fieldAttrs';
 import { countInput, initialCounter, isPasteInput, resetComposition } from '../../lib/typing';
 import { caretBox } from './caret';
 
@@ -112,11 +113,8 @@ export function WritingField({ fieldRef, scrollRef, value, blocked, allowPaste, 
       lang={lang}
       aria-label={label}
       tabIndex={blocked ? -1 : 0}
-      spellCheck
-      autoCapitalize="sentences"
+      {...textareaProps(FIELD_NAMES.retelling)}
       autoCorrect="on"
-      autoComplete="off"
-      enterKeyHint="enter"
       className={`write-field reading-column max-w-none ${mono ? 'font-mono' : ''}`}
       onCompositionStart={() => {
         counter.current = resetComposition();

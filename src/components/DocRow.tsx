@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { doneCount, isFinished, screenForDoc, type DocScreen } from '../lib/doc';
+import { FIELD_NAMES, inputProps } from '../lib/fieldAttrs';
 import { formatDocDate } from '../lib/format';
 import { ru } from '../i18n/ru';
 import type { Doc } from '../lib/types';
@@ -61,6 +62,7 @@ export function DocRow({ doc, now, onOpen, onRename, onDelete }: Props) {
       {mode === 'rename' ? (
         <input
           ref={input}
+          {...inputProps(FIELD_NAMES.title)}
           value={draft}
           aria-label={ru.home.doc.renameLabel}
           onChange={(e) => setDraft(e.target.value)}
