@@ -66,7 +66,8 @@ describe('все текстовые поля используют общий х�
     const src = readFileSync(file, 'utf8');
     const textareas = (src.match(/<textarea\b/g) ?? []).length;
     const inputs = (src.match(/<input\b/g) ?? []).length;
-    const fileInputs = (src.match(/type="file"/g) ?? []).length;
+    // Не текстовые поля (файл, ползунок, переключатели) автозаполнению не подвержены.
+    const fileInputs = (src.match(/type="(file|range|radio|checkbox)"/g) ?? []).length;
     if (textareas + inputs === 0) continue;
     it(`${file.slice(root.length)}`, () => {
       const helpers = (src.match(/\b(textareaProps|inputProps)\(/g) ?? []).length;

@@ -20,11 +20,14 @@ interface AppState {
   currentDocId: string | null;
   /** Последняя ошибка записи в IndexedDB; null, когда всё сохранено. */
   saveError: DbErrorKind | null;
+  /** Открыта панель настроек (модальное окно; в сессии ставит давление на паузу). */
+  settingsOpen: boolean;
 
   hydrate(): Promise<void>;
   go(screen: Screen): void;
   setSettings(patch: Partial<Settings>): void;
   setTheme(theme: Theme): void;
+  setSettingsOpen(open: boolean): void;
   createDocument(source: string, opts?: Omit<CreateDocOptions, 'now' | 'newId'>): Doc;
   /** Делает документ текущим и, если указан экран, переходит на него. */
   openDocument(id: string | null, screen?: Screen): void;
@@ -85,6 +88,7 @@ export const useApp = create<AppState>((set, get) => {
     settings: DEFAULT_SETTINGS,
     docs: [],
     currentDocId: null,
+    settingsOpen: false,
     saveError: null,
 
     async hydrate() {
@@ -122,6 +126,10 @@ export const useApp = create<AppState>((set, get) => {
 
     setTheme(theme) {
       get().setSettings({ theme });
+    },
+
+    setSettingsOpen(open) {
+      set({ settingsOpen: open });
     },
 
     createDocument(source, opts = {}) {

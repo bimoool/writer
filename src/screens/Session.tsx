@@ -9,11 +9,13 @@ import { ReadingText } from '../components/session/ReadingText';
 import { WritingField, type FieldCounts } from '../components/session/WritingField';
 import { runDissolve, type DissolveRun } from '../components/session/dissolveAnimation';
 import { useIdleHide } from '../components/session/useIdleHide';
+import { usePressure } from '../components/session/usePressure';
 import { useVisualViewport } from '../components/session/useVisualViewport';
 import { ru } from '../i18n/ru';
 import { advance } from '../lib/activity';
 import { BLOCK_IN_MS, BLOCK_IN_SHIFT_PX, MAX_DISSOLVE_MS, PAUSE_MS } from '../lib/dissolve';
 import { PEEK_MAX_MS, endPeek as countPeekTime, openLevel, startPeek as countPeek, type HintLevel } from '../lib/hints';
+import { effectiveMode } from '../lib/pressure';
 import { canFinish, completeBlock, frontierIndex, initialPhase, patchBlock, startWriting, type Phase } from '../lib/session';
 import { detectLang } from '../lib/tokens';
 import type { Block, Doc } from '../lib/types';
@@ -53,6 +55,7 @@ function Stage({ doc, index, onEdit }: StageProps) {
   const block = doc.blocks[index]!;
   const editing = index < frontierIndex(doc);
   const settings = useApp((s) => s.settings);
+  const settingsOpen = useApp((s) => s.settingsOpen);
   const lang = useMemo(() => detectLang(doc.source), [doc.source]);
   const reducedMotion = useReducedMotion();
 
@@ -73,6 +76,7 @@ function Stage({ doc, index, onEdit }: StageProps) {
   const peekStart = useRef<number | null>(null);
   const peekLimit = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const peekFade = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const vignette = useRef<HTMLDivElement>(null);
 
   useVisualViewport(root);
   const chromeVisible = useIdleHide(phase === 'writing');
@@ -113,6 +117,27 @@ function Stage({ doc, index, onEdit }: StageProps) {
       activeMs: b.activeMs + ms,
     }));
   };
+
+  // --- давление (SPEC §7) -----------------------------------------------------------------
+
+  // Стёртое слово меняет только текст: typedChars и pastedChars не уменьшаются и не растут, activeMs не копится.
+  const onErase = (value: string) => {
+    setDraft(value);
+    patch(() => ({ userText: value }));
+  };
+
+  const pressure = usePressure({
+    // Правка завершённого блока: давление выключено полностью, в любом режиме.
+    mode: effectiveMode(settings.pressure, block.status),
+    delaySec: settings.pressureDelaySec,
+    active: phase === 'writing',
+    paused: { hint: open[1] || open[2] || open[3], peek: peek !== 'off', modal: settingsOpen },
+    field,
+    vignette,
+    lang,
+    reduced: !!reducedMotion,
+    onErase,
+  });
 
   // --- подсказки (SPEC §3.4) ---------------------------------------------------------------
 
@@ -282,7 +307,8 @@ function Stage({ doc, index, onEdit }: StageProps) {
   // На Shift, Ctrl+Space, Cmd+Space и ` ничего не вешаем.
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.repeat) return;
+      // Пока открыта панель настроек, клавиши принадлежат ей.
+      if (e.repeat || useApp.getState().settingsOpen) return;
       const bare = !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey;
       if (e.code === 'Space' && bare && api.current.phase === 'reading') {
         // На другой кнопке (например, «К списку») пробел остаётся её нажатием.
@@ -332,13 +358,17 @@ function Stage({ doc, index, onEdit }: StageProps) {
     >
       <h1 className="sr-only">{ru.screens.session}</h1>
 
+      {/* Виньетка давления (DESIGN §6.5): под всем содержимым сессии (z-index ниже потока), касаний не ловит,
+          кнопки и поле рисуются поверх. Меняется только opacity. */}
+      <div ref={vignette} aria-hidden="true" data-vignette className="pressure-vignette pointer-events-none absolute inset-0 -z-10" />
+
       <div className="h-0.5 shrink-0">
         <div className="h-full bg-ink" style={{ width: `${((index + 1) / total) * 100}%` }} />
       </div>
 
-      <div className="session-top flex shrink-0 items-center justify-between gap-2 px-4 pt-2">
-        <span className="text-meta tabular-nums text-text-dim">{progress}</span>
-        <div className="session-chrome -mr-2 flex flex-wrap justify-end" data-hidden={!chromeVisible}>
+      <div className="session-top flex shrink-0 items-start justify-between gap-2 px-4 pt-2">
+        <span className="flex min-h-10 shrink-0 items-center whitespace-nowrap text-meta tabular-nums text-text-dim">{progress}</span>
+        <div className="session-chrome -mr-2 flex min-w-0 flex-wrap justify-end" data-hidden={!chromeVisible}>
           {index > 0 && (
             <button type="button" className={quiet} onClick={() => leave(() => onEdit(index - 1))}>
               {ru.session.backToPrevious}
@@ -346,6 +376,17 @@ function Stage({ doc, index, onEdit }: StageProps) {
           )}
           <button type="button" className={quiet} onClick={() => leave(() => useApp.getState().go('home'))}>
             {ru.session.toList}
+          </button>
+          {/* Не забираем фокус у поля: после закрытия панели он вернётся туда, и клавиатура снова откроется. */}
+          <button
+            type="button"
+            aria-haspopup="dialog"
+            className={quiet}
+            onPointerDown={keepFocus}
+            onMouseDown={keepFocus}
+            onClick={() => useApp.getState().setSettingsOpen(true)}
+          >
+            {ru.settings.open}
           </button>
         </div>
       </div>
@@ -366,7 +407,7 @@ function Stage({ doc, index, onEdit }: StageProps) {
         <div className="relative min-h-0 flex-1">
           <div ref={scroll} className="absolute inset-0 overflow-y-auto overscroll-contain">
             <div className="mx-auto flex min-h-full w-full max-w-[44rem] flex-col px-4">
-              <div className="writing-layer my-auto py-6" data-shown={writing}>
+              <div className="writing-layer relative my-auto py-6" data-shown={writing}>
                 <PreviousText texts={previous} />
                 <WritingField
                   fieldRef={field}
@@ -379,6 +420,8 @@ function Stage({ doc, index, onEdit }: StageProps) {
                   label={ru.session.fieldLabel}
                   onChange={onFieldChange}
                   onPasteBlocked={() => showMessage('paste')}
+                  onActivity={pressure.activity}
+                  onComposition={pressure.composition}
                 />
                 {message && (
                   <p role="status" className="mt-2 text-meta text-text-dim">

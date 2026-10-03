@@ -1,7 +1,7 @@
 import { ru } from '../i18n/ru';
 import { THEMES, useApp } from '../store/app';
 
-/** Временный переключатель тем (фаза 0). Тема сохраняется в настройках. В фазе 9 переедет в панель настроек. */
+/** Переключатель тем в панели настроек. Тема сохраняется в настройках. */
 export function ThemeSwitcher() {
   const theme = useApp((s) => s.settings.theme);
   const setTheme = useApp((s) => s.setTheme);

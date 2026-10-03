@@ -9,11 +9,21 @@ const COPIED = [
  * Положение каретки внутри textarea (относительно её верхнего края) через зеркальный div:
  * у textarea нет API для координат каретки, а нужно, чтобы курсор не уходил под клавиатуру.
  */
+/** Переносит на элемент всё, от чего зависит раскладка текста в textarea. */
+export function copyTextLayout(cs: CSSStyleDeclaration, el: HTMLElement): void {
+  for (const prop of COPIED) el.style.setProperty(prop, cs.getPropertyValue(prop));
+}
+
+function createMirror(cs: CSSStyleDeclaration): HTMLDivElement {
+  const mirror = document.createElement('div');
+  copyTextLayout(cs, mirror);
+  Object.assign(mirror.style, { position: 'absolute', left: '-9999px', top: '0', visibility: 'hidden', whiteSpace: 'pre-wrap', overflowWrap: 'break-word' });
+  return mirror;
+}
+
 export function caretBox(ta: HTMLTextAreaElement): { top: number; bottom: number } {
   const cs = getComputedStyle(ta);
-  const mirror = document.createElement('div');
-  for (const prop of COPIED) mirror.style.setProperty(prop, cs.getPropertyValue(prop));
-  Object.assign(mirror.style, { position: 'absolute', left: '-9999px', top: '0', visibility: 'hidden', whiteSpace: 'pre-wrap', overflowWrap: 'break-word' });
+  const mirror = createMirror(cs);
   mirror.textContent = ta.value.slice(0, ta.selectionEnd);
   const marker = document.createElement('span');
   marker.textContent = String.fromCharCode(0x200b); // у пустой строки у span нет высоты
@@ -24,3 +34,4 @@ export function caretBox(ta: HTMLTextAreaElement): { top: number; bottom: number
   mirror.remove();
   return { top, bottom: top + lineHeight };
 }
+

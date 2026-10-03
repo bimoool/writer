@@ -92,6 +92,18 @@ export const ru = {
     },
     pasteOff: 'Вставка отключена. Включить можно в настройках',
   },
+  settings: {
+    open: 'Настройки',
+    title: 'Настройки',
+    close: 'Закрыть',
+    pressure: 'Давление',
+    pressureOff: 'Выкл',
+    pressureSoft: 'Мягкое',
+    pressureKamikaze: 'Камикадзе',
+    kamikazeNote: 'Если остановишься, слова текущего блока начнут стираться. Предыдущие блоки не затрагиваются',
+    delay: 'Задержка',
+    delayValue: (sec: number) => `${sec} с`,
+  },
   result: {
     title: 'Готово',
     copy: 'Скопировать',

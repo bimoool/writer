@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { SaveErrorNotice } from './components/SaveErrorNotice';
-import { ThemeSwitcher } from './components/ThemeSwitcher';
+import { SettingsPanel } from './components/SettingsPanel';
 import { ru } from './i18n/ru';
 import { Home } from './screens/Home';
 import { Result } from './screens/Result';
@@ -31,10 +31,18 @@ export function App() {
     <div className="min-h-dvh bg-bg text-text">
       <header className="flex items-center justify-between gap-2 px-4 py-2">
         <span className="text-ui font-medium">{ru.appName}</span>
-        <ThemeSwitcher />
+        <button
+          type="button"
+          aria-haspopup="dialog"
+          onClick={() => useApp.getState().setSettingsOpen(true)}
+          className="-mr-2 min-h-10 rounded-surface px-2 text-meta text-text-dim transition-colors duration-[120ms] hover:text-text"
+        >
+          {ru.settings.open}
+        </button>
       </header>
       <SaveErrorNotice />
       {ready && <Current />}
+      <SettingsPanel />
     </div>
   );
 }

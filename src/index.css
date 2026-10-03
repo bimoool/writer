@@ -265,6 +265,10 @@
   .write-field:focus {
     border-bottom-color: var(--ink);
   }
+  /* Пока последнее слово растворяется, текст поля показывает его копия поверх (eraseGhost.ts). */
+  .write-field[data-erasing-word] {
+    color: transparent;
+  }
   /* Поле проявляется после растворения, пока скрыто, но остаётся в DOM: на iOS клавиатуру можно открыть
      только фокусом внутри жеста, то есть в обработчике нажатия «Запомнил». */
   .writing-layer {
@@ -273,6 +277,13 @@
   .writing-layer[data-shown='false'] {
     opacity: 0;
     pointer-events: none;
+  }
+  /* Виньетка давления (DESIGN §6.5). Нарастание идёт тиками по 100 мс, переход их сглаживает; он же даёт
+     сброс за 150 мс при активности. При reduced motion переходы гасятся общим правилом, и виньетка встаёт ступенями. */
+  .pressure-vignette {
+    opacity: 0;
+    background: radial-gradient(ellipse at center, transparent 55%, color-mix(in oklab, var(--danger) 55%, transparent) 100%);
+    transition: opacity 150ms linear;
   }
   /* Верхняя панель исчезает через 1,5 с без движения и возвращается при движении. */
   .session-chrome {

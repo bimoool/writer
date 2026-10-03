@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, type RefObject } from 'react';
 import { FIELD_NAMES, textareaProps } from '../../lib/fieldAttrs';
+import type { ActivityKind } from '../../lib/pressure';
 import { countInput, initialCounter, isPasteInput, resetComposition } from '../../lib/typing';
 import { caretBox } from './caret';
 
@@ -21,6 +22,10 @@ interface Props {
   label: string;
   onChange: (value: string, counts: FieldCounts) => void;
   onPasteBlocked: () => void;
+  /** Любая активность пользователя в поле (для давления, SPEC §7). */
+  onActivity?: (kind: ActivityKind) => void;
+  /** Идёт ли композиция IME или предиктивного ввода: пока идёт, слово не дописано. */
+  onComposition?: (active: boolean) => void;
 }
 
 const CARET_PAD_PX = 16;
@@ -32,14 +37,66 @@ const CARET_PAD_PX = 16;
  * - подсчёт набранного и вставленного по inputType без двойного счёта композиции IME;
  * - автовысота и каретка, которая не уходит под экранную клавиатуру.
  */
-export function WritingField({ fieldRef, scrollRef, value, blocked, allowPaste, lang, mono, label, onChange, onPasteBlocked }: Props) {
+export function WritingField({ fieldRef, scrollRef, value, blocked, allowPaste, lang, mono, label, onChange, onPasteBlocked, onActivity, onComposition }: Props) {
   const counter = useRef(initialCounter());
   const before = useRef({ length: value.length, selected: 0 });
-  const live = useRef({ blocked, allowPaste, onPasteBlocked });
+  const live = useRef({ blocked, allowPaste, onPasteBlocked, onActivity, onComposition });
+  const composing = useRef(false);
 
   useEffect(() => {
-    live.current = { blocked, allowPaste, onPasteBlocked };
+    live.current = { blocked, allowPaste, onPasteBlocked, onActivity, onComposition };
   });
+
+  const activity = (kind: ActivityKind) => {
+    if (!live.current.blocked) live.current.onActivity?.(kind);
+  };
+  const setComposing = (active: boolean) => {
+    if (composing.current === active) return;
+    composing.current = active;
+    live.current.onComposition?.(active);
+  };
+
+  // Активность для давления. keydown на телефоне ненадёжен (Android IME шлёт keyCode 229, диктовка и автозамена
+  // keydown не дают вовсе), поэтому слушаем все пути: beforeinput, input, композицию, keydown и перемещение
+  // каретки или выделения. Каретку, которую сдвинула программа (стирание слова), за активность не считаем:
+  // при ней меняется и текст, а пользователь, двигая каретку, текст не меняет.
+  useEffect(() => {
+    const ta = fieldRef.current;
+    if (!ta) return;
+    let seen = { value: ta.value, start: ta.selectionStart, end: ta.selectionEnd };
+    const onSelection = () => {
+      if (document.activeElement !== ta) return;
+      const now = { value: ta.value, start: ta.selectionStart, end: ta.selectionEnd };
+      if (now.value === seen.value && (now.start !== seen.start || now.end !== seen.end)) activity('selection');
+      seen = now;
+    };
+    const onKey = () => activity('key');
+    const onCompositionStart = () => {
+      setComposing(true);
+      activity('composition');
+    };
+    const onCompositionUpdate = () => activity('composition');
+    const onCompositionEnd = () => {
+      setComposing(false);
+      activity('composition');
+    };
+    // Если композиция оборвалась без compositionend (ушли из поля), пауза не должна зависнуть.
+    const onBlur = () => setComposing(false);
+    document.addEventListener('selectionchange', onSelection);
+    ta.addEventListener('keydown', onKey);
+    ta.addEventListener('compositionstart', onCompositionStart);
+    ta.addEventListener('compositionupdate', onCompositionUpdate);
+    ta.addEventListener('compositionend', onCompositionEnd);
+    ta.addEventListener('blur', onBlur);
+    return () => {
+      document.removeEventListener('selectionchange', onSelection);
+      ta.removeEventListener('keydown', onKey);
+      ta.removeEventListener('compositionstart', onCompositionStart);
+      ta.removeEventListener('compositionupdate', onCompositionUpdate);
+      ta.removeEventListener('compositionend', onCompositionEnd);
+      ta.removeEventListener('blur', onBlur);
+    };
+  }, [fieldRef]);
 
   // beforeinput вешаем напрямую: у React onBeforeInput другая природа (textInput) и preventDefault там не гарантирован.
   useEffect(() => {
@@ -47,6 +104,7 @@ export function WritingField({ fieldRef, scrollRef, value, blocked, allowPaste, 
     if (!ta) return;
     const onBefore = (e: InputEvent) => {
       before.current = { length: ta.value.length, selected: ta.selectionEnd - ta.selectionStart };
+      if (!live.current.blocked) live.current.onActivity?.('input');
       if (!e.cancelable) return;
       const { blocked: isBlocked, allowPaste: pasteOk, onPasteBlocked: warn } = live.current;
       if (isBlocked) {
@@ -125,6 +183,7 @@ export function WritingField({ fieldRef, scrollRef, value, blocked, allowPaste, 
       onChange={(e) => {
         // Пока ввод заблокирован, не трогаем состояние: React вернёт в поле прежнее значение.
         if (blocked) return;
+        activity('input');
         const ta = e.currentTarget;
         const ev = e.nativeEvent as InputEvent;
         const inputType = ev.inputType ?? '';
