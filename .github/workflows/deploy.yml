@@ -1,6 +1,12 @@
 name: Deploy
 
 on:
+  push:
+    branches:
+      - claude/new-session-rnu876
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
   workflow_dispatch:
     inputs:
       ref:
@@ -27,7 +33,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.ref }}
+          ref: ${{ github.event_name == 'push' && github.ref_name || inputs.ref }}
 
       - name: Определить версию Node
         id: node
