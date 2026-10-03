@@ -231,6 +231,65 @@
     }
   }
 
+  /* Сессия (DESIGN §4, §6.1, §6.6). */
+  .read-word {
+    display: inline-block;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+  /* Поле письма: без рамки, на странице; о фокусе говорит линия снизу и каретка. */
+  .write-field {
+    display: block;
+    width: 100%;
+    min-height: 3.4em;
+    margin: 0;
+    padding: 0 0 12px;
+    resize: none;
+    overflow: hidden;
+    border: 0;
+    border-bottom: 1px solid var(--line);
+    border-radius: 0;
+    outline: none;
+    background: transparent;
+    color: var(--text);
+    caret-color: var(--ink);
+    transition: border-color 120ms var(--ease-standard);
+  }
+  .write-field:focus {
+    border-bottom-color: var(--ink);
+  }
+  /* Поле проявляется после растворения, пока скрыто, но остаётся в DOM: на iOS клавиатуру можно открыть
+     только фокусом внутри жеста, то есть в обработчике нажатия «Запомнил». */
+  .writing-layer {
+    transition: opacity 200ms var(--ease-standard);
+  }
+  .writing-layer[data-shown='false'] {
+    opacity: 0;
+    pointer-events: none;
+  }
+  /* Верхняя панель исчезает через 1,5 с без движения и возвращается при движении. */
+  .session-chrome {
+    transition: opacity 200ms var(--ease-standard);
+  }
+  .session-chrome[data-hidden='true'] {
+    opacity: 0;
+    pointer-events: none;
+  }
+  .prev-text {
+    max-height: min(var(--prev-h), calc(var(--vv-h, 100dvh) * 0.3));
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  /* Подсказки про клавиши только там, где есть физическая клавиатура. */
+  .kbd-hint {
+    display: none;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .kbd-hint {
+      display: inline;
+    }
+  }
+
   /* Колонка для чтения и письма (DESIGN §3): 20px, на мобильных 18px. */
   .reading-column {
     max-width: 64ch;

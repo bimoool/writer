@@ -10,6 +10,9 @@ import { useApp } from '../store/app';
 
 const newId = () => crypto.randomUUID();
 
+/** Столько после удаления подсветки слово под курсором ещё считается частью того же двойного щелчка. */
+const DOUBLE_CLICK_MS = 700;
+
 type AddResult = 'ok' | 'overlap' | 'empty';
 
 /** Добавляет фразу по выделению. Читает актуальный документ из стора, а не из замыкания. */
@@ -31,6 +34,8 @@ export function Split() {
   const confirmNo = useRef<HTMLButtonElement>(null);
   const focusAfter = useRef<{ id: string; action: 'merge' | 'cut' | 'row' } | null>(null);
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  /** Фраза, убранная только что: слово, выделенное вторым кликом двойного щелчка, новой фразой не становится. */
+  const justRemoved = useRef<{ blockId: string; start: number; end: number; at: number } | null>(null);
 
   const [cutBlockId, setCutBlockId] = useState<string | null>(null);
   const [confirmSize, setConfirmSize] = useState<BlockSize | null>(null);
@@ -76,6 +81,11 @@ export function Split() {
   };
 
   const add = (sel: BlockSelection) => {
+    const gone = justRemoved.current;
+    if (gone && gone.blockId === sel.blockId && Date.now() - gone.at < DOUBLE_CLICK_MS && sel.start < gone.end && sel.end > gone.start) {
+      window.getSelection()?.removeAllRanges();
+      return;
+    }
     const result = addPhraseFromSelection(sel);
     window.getSelection()?.removeAllRanges();
     if (result === 'overlap') showNotice(sel.blockId, ru.split.overlap);
@@ -169,7 +179,10 @@ export function Split() {
               notice={notice?.blockId === block.id ? notice.text : null}
               onRemovePhrase={(pi) => {
                 const at = indexOf(block.id);
-                if (at >= 0) edit((d) => setKeyphrases(d, at, removeKeyphraseAt(d.blocks[at]!.keyphrases, pi)));
+                if (at < 0) return;
+                const phrase = useApp.getState().docs.find((d) => d.id === docId)?.blocks[at]?.keyphrases[pi];
+                if (phrase) justRemoved.current = { blockId: block.id, start: phrase.start, end: phrase.end, at: Date.now() };
+                edit((d) => setKeyphrases(d, at, removeKeyphraseAt(d.blocks[at]!.keyphrases, pi)));
               }}
               onMerge={() => {
                 const at = indexOf(block.id);

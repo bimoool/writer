@@ -115,9 +115,12 @@ export function BlockItem({ block, index, total, lang, editable, cutMode, notice
                 className="marker"
                 data-reveal={revealed ? 'in' : 'pending'}
                 style={{ '--i': seg.index } as CSSProperties}
-                onClick={() => {
-                  // Выделение мышью заканчивается кликом: тогда подсветку не убираем.
-                  if (!hasSelection()) onRemovePhrase(seg.index);
+                onClick={(e) => {
+                  // Подсветку убирает только одиночный клик или касание при схлопнутом выделении.
+                  // detail > 1 — второй и третий клик двойного и тройного щелчка. detail 0 (активация
+                  // вспомогательной технологией) считаем одиночным нажатием.
+                  if (e.detail > 1 || hasSelection()) return;
+                  onRemovePhrase(seg.index);
                 }}
                 onKeyDown={(e) => {
                   if (!['Delete', 'Backspace', 'Enter', ' '].includes(e.key)) return;
