@@ -407,3 +407,22 @@ describe('lastWordRange и removeLastWord', () => {
     expect(seen).toEqual(['Один, два — три', 'Один, два —', 'Один,', '']);
   });
 });
+
+describe('emoji и составные символы', () => {
+  it('стирание режет по границам слов и не ломает суррогатные пары', () => {
+    const cases = ['Привет 👋 мир 🇷🇺', 'Семья 👨‍👩‍👧‍👦 дома', 'раз два 😀😀😀', 'один 🙂'];
+    for (const text of cases) {
+      let t = text;
+      for (let i = 0; i < 6 && lastWordRange(t, 'ru'); i++) {
+        t = removeLastWord(t, 'ru');
+        expect(t).not.toMatch(/[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/);
+      }
+      expect(lastWordRange(t, 'ru')).toBeNull();
+    }
+  });
+
+  it('emoji без слов: стирать нечего', () => {
+    expect(lastWordRange('😀😀😀', 'ru')).toBeNull();
+    expect(removeLastWord('👨‍👩‍👧‍👦 🙂', 'ru')).toBe('👨‍👩‍👧‍👦 🙂');
+  });
+});

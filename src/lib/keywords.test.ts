@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { APPENDIX_A } from './__fixtures__/appendix-a';
-import { extractKeyphrases, phraseTexts, targetCount, topUpKeyphrases } from './keywords';
+import { extractKeyphrases, phraseCapacity, phraseTexts, targetCount, topUpKeyphrases } from './keywords';
 import { segment } from './segment';
 import { countWords } from './tokens';
 
@@ -167,5 +167,18 @@ describe('topUpKeyphrases (добор после склейки и разрез�
     topUpKeyphrases([{ text }, other], have, [0, 1]);
     expect(have[0]).toHaveLength(1);
     expect(have[1]).toHaveLength(0);
+  });
+});
+
+describe('phraseCapacity', () => {
+  it('слова через одно: цепочка из k значимых слов даёт ceil(k / 2)', () => {
+    expect(phraseCapacity('Универсального метода подойдёт.', 'ru')).toBe(2);
+    expect(phraseCapacity('Время ценно.', 'ru')).toBe(1);
+  });
+  it('стоп-слова разделяют цепочки', () => {
+    expect(phraseCapacity('Время и планы, деньги и риски.', 'ru')).toBe(4);
+  });
+  it('пустой текст: ноль', () => {
+    expect(phraseCapacity('', 'ru')).toBe(0);
   });
 });

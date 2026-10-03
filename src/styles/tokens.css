@@ -10,7 +10,7 @@
   --marker: #e6c85a;
   --marker-alpha: 0.24;
   --ink: #8ea0f0;
-  --danger: #e05252;
+  --danger: #e36363;
   color-scheme: dark;
 }
 
@@ -24,7 +24,7 @@
   --marker: #f2d64b;
   --marker-alpha: 0.55;
   --ink: #3550c8;
-  --danger: #d33b3b;
+  --danger: #cb3939;
   color-scheme: light;
 }
 
@@ -38,7 +38,7 @@
   --marker: #ddb54a;
   --marker-alpha: 0.42;
   --ink: #4f44a8;
-  --danger: #b8432d;
+  --danger: #a93e29;
   color-scheme: light;
 }
 

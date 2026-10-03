@@ -157,6 +157,15 @@
     }
   }
 
+  /* Слова, выбранные с клавиатуры (режим «Выбрать слова»). Видно и поверх маркера. */
+  .word-select {
+    background: color-mix(in oklab, var(--ink) 32%, transparent);
+    border-radius: var(--radius-mark);
+    box-shadow: 0 0 0 1px var(--ink);
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+  }
+
   /* Точка разреза между предложениями. На мышке проявляется при наведении (увеличенная невидимая зона нажатия),
      на сенсорных экранах и с клавиатуры работает режим «Разрезать» (.cut-row). */
   .cut-gap {

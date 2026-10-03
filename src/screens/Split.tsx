@@ -6,27 +6,21 @@ import { ru } from '../i18n/ru';
 import { addKeyphrase, cutDocBlock, hasProgress, mergeDocBlocks, removeKeyphraseAt, resegmentDoc, setKeyphrases } from '../lib/blocks';
 import { detectLang } from '../lib/tokens';
 import type { BlockSize, Doc } from '../lib/types';
+import { changed, pushUndo, restoreSnapshot, snapshotOf, type Snapshot } from '../lib/undo';
 import { useApp } from '../store/app';
 
 const newId = () => crypto.randomUUID();
+const now = () => Date.now();
 
 /** Столько после удаления подсветки слово под курсором ещё считается частью того же двойного щелчка. */
 const DOUBLE_CLICK_MS = 700;
 
 type AddResult = 'ok' | 'overlap' | 'empty';
 
-/** Добавляет фразу по выделению. Читает актуальный документ из стора, а не из замыкания. */
-function addPhraseFromSelection(sel: BlockSelection): AddResult {
-  const { docs, currentDocId, updateDoc } = useApp.getState();
-  const doc = docs.find((d) => d.id === currentDocId);
-  const index = doc?.blocks.findIndex((b) => b.id === sel.blockId) ?? -1;
-  if (!doc || index < 0 || hasProgress(doc)) return 'empty';
-  const block = doc.blocks[index]!;
-  const result = addKeyphrase(block.keyphrases, block.sourceText, sel.start, sel.end, detectLang(doc.source));
-  if (!result.ok) return result.reason;
-  updateDoc(doc.id, (d) => setKeyphrases(d, index, result.phrases));
-  return 'ok';
-}
+const currentDoc = () => {
+  const { docs, currentDocId } = useApp.getState();
+  return docs.find((d) => d.id === currentDocId);
+};
 
 export function Split() {
   const doc = useApp((s) => s.docs.find((d) => d.id === s.currentDocId));
@@ -40,6 +34,9 @@ export function Split() {
   const [cutBlockId, setCutBlockId] = useState<string | null>(null);
   const [confirmSize, setConfirmSize] = useState<BlockSize | null>(null);
   const [notice, setNotice] = useState<{ blockId: string; text: string } | null>(null);
+  // Стек отмены только в памяти: уход с экрана размонтирует компонент и стек пропадает.
+  const undoStack = useRef<Snapshot[]>([]);
+  const [undoDepth, setUndoDepth] = useState(0);
 
   const lang = useMemo(() => detectLang(doc?.source ?? ''), [doc?.source]);
   const editable = !!doc && !hasProgress(doc);
@@ -80,15 +77,69 @@ export function Split() {
     noticeTimer.current = setTimeout(() => setNotice(null), 4000);
   };
 
+  /** Любая правка разбивки идёт через эту функцию: она же кладёт состояние до правки в стек отмены. */
+  const edit = (change: (d: Doc) => Doc) => {
+    const before = currentDoc();
+    if (!before) return;
+    useApp.getState().updateDoc(before.id, change);
+    const after = currentDoc();
+    if (after && changed(before, after)) {
+      undoStack.current = pushUndo(undoStack.current, snapshotOf(before));
+      setUndoDepth(undoStack.current.length);
+    }
+  };
+
+  /** Добавляет фразу в блок. Читает актуальный документ из стора, а не из замыкания. */
+  const addPhrase = (blockId: string, start: number, end: number): AddResult => {
+    const d = currentDoc();
+    const at = d?.blocks.findIndex((b) => b.id === blockId) ?? -1;
+    if (!d || at < 0 || hasProgress(d)) return 'empty';
+    const block = d.blocks[at]!;
+    const result = addKeyphrase(block.keyphrases, block.sourceText, start, end, detectLang(d.source));
+    if (!result.ok) {
+      if (result.reason === 'overlap') showNotice(blockId, ru.split.overlap);
+      return result.reason;
+    }
+    edit((x) => setKeyphrases(x, at, result.phrases));
+    return 'ok';
+  };
+
+  const undo = () => {
+    const snap = undoStack.current.pop();
+    const d = currentDoc();
+    if (!snap || !d) return;
+    useApp.getState().updateDoc(d.id, (x) => restoreSnapshot(x, snap));
+    setUndoDepth(undoStack.current.length);
+    setCutBlockId(null);
+    setConfirmSize(null);
+    // Кнопка гаснет, когда отменять нечего: фокус не должен пропасть.
+    if (undoStack.current.length === 0) heading.current?.focus();
+  };
+  const undoRef = useRef(undo);
+  useEffect(() => {
+    undoRef.current = undo;
+  });
+
+  // Ctrl/Cmd+Z по физической клавише: работает и в другой раскладке.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.code !== 'KeyZ' || !(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey || e.defaultPrevented) return;
+      if ((e.target as HTMLElement | null)?.closest('input, textarea, [contenteditable="true"]')) return;
+      e.preventDefault();
+      undoRef.current();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   const add = (sel: BlockSelection) => {
     const gone = justRemoved.current;
-    if (gone && gone.blockId === sel.blockId && Date.now() - gone.at < DOUBLE_CLICK_MS && sel.start < gone.end && sel.end > gone.start) {
+    if (gone && gone.blockId === sel.blockId && now() - gone.at < DOUBLE_CLICK_MS && sel.start < gone.end && sel.end > gone.start) {
       window.getSelection()?.removeAllRanges();
       return;
     }
-    const result = addPhraseFromSelection(sel);
+    addPhrase(sel.blockId, sel.start, sel.end);
     window.getSelection()?.removeAllRanges();
-    if (result === 'overlap') showNotice(sel.blockId, ru.split.overlap);
   };
 
   const [pending, clearPending] = useSelectionCapture({ enabled: editable, onMouseSelect: add });
@@ -96,7 +147,6 @@ export function Split() {
   if (!doc) return null;
 
   const docId = doc.id;
-  const edit = (change: (d: Doc) => Doc) => useApp.getState().updateDoc(docId, change);
   /** Индекс блока по id в актуальном документе: индексы в замыкании могли устареть. */
   const indexOf = (blockId: string) => useApp.getState().docs.find((d) => d.id === docId)?.blocks.findIndex((b) => b.id === blockId) ?? -1;
 
@@ -181,7 +231,7 @@ export function Split() {
                 const at = indexOf(block.id);
                 if (at < 0) return;
                 const phrase = useApp.getState().docs.find((d) => d.id === docId)?.blocks[at]?.keyphrases[pi];
-                if (phrase) justRemoved.current = { blockId: block.id, start: phrase.start, end: phrase.end, at: Date.now() };
+                if (phrase) justRemoved.current = { blockId: block.id, start: phrase.start, end: phrase.end, at: now() };
                 edit((d) => setKeyphrases(d, at, removeKeyphraseAt(d.blocks[at]!.keyphrases, pi)));
               }}
               onMerge={() => {
@@ -195,6 +245,7 @@ export function Split() {
                 focusAfter.current = { id: block.id, action: enabling ? 'row' : 'cut' };
                 setCutBlockId(enabling ? block.id : null);
               }}
+              onAddPhrase={(range) => addPhrase(block.id, range.start, range.end)}
               onCut={(offset) => {
                 const at = indexOf(block.id);
                 if (at < 0) return;
@@ -225,7 +276,16 @@ export function Split() {
       )}
 
       <footer className="sticky bottom-0 z-10 border-t border-line bg-bg">
-        <div className="mx-auto flex max-w-[46rem] justify-end px-4 py-3">
+        <div className="mx-auto flex max-w-[46rem] items-center justify-between gap-4 px-4 py-3">
+          <button
+            type="button"
+            disabled={undoDepth === 0}
+            aria-keyshortcuts="Control+Z Meta+Z"
+            onClick={undo}
+            className="-ml-2 min-h-10 rounded-surface px-2 text-ui text-text-dim transition-colors duration-[120ms] enabled:hover:text-text disabled:opacity-50"
+          >
+            {ru.split.undo}
+          </button>
           <button
             type="button"
             onClick={() => useApp.getState().openDocument(doc.id, 'session')}

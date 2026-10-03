@@ -471,7 +471,23 @@ function Stage({ doc, index, onEdit }: StageProps) {
                 onPeekStart={beginPeek}
                 onPeekEnd={finishPeek}
               />
-              <div className="mt-2 flex items-center gap-4 sm:mt-0">
+              <div className="mt-2 flex items-center gap-2 sm:mt-0 sm:gap-4">
+                {/* Настройки без закрытия клавиатуры: верхняя панель на низком экране скрыта. Кнопка не берёт фокус у поля. */}
+                <button
+                  type="button"
+                  aria-label={ru.settings.open}
+                  aria-haspopup="dialog"
+                  className="flex size-12 shrink-0 items-center justify-center rounded-surface border border-line text-text-dim transition-colors duration-[120ms] hover:text-text"
+                  onPointerDown={keepFocus}
+                  onMouseDown={keepFocus}
+                  onClick={() => useApp.getState().setSettingsOpen(true)}
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true">
+                    <path d="M4 7h10M18 7h2M4 17h2M10 17h10" />
+                    <circle cx="16" cy="7" r="2" />
+                    <circle cx="8" cy="17" r="2" />
+                  </svg>
+                </button>
                 <button type="button" className={`${primary} flex-1 sm:flex-none`} onPointerDown={keepFocus} onMouseDown={keepFocus} onClick={done}>
                   {ru.session.done}
                 </button>

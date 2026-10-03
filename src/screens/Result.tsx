@@ -12,6 +12,8 @@ import { useApp } from '../store/app';
 
 const primary =
   'min-h-12 rounded-surface bg-ink px-6 text-ui font-medium text-bg transition-colors duration-[120ms] hover:bg-ink-hover disabled:opacity-60';
+const secondary =
+  'min-h-12 rounded-surface border border-line px-4 text-ui text-text transition-colors duration-[120ms] hover:border-ink disabled:opacity-60';
 const quiet =
   'min-h-12 rounded-surface px-3 text-ui text-text-dim transition-colors duration-[120ms] hover:text-text disabled:opacity-60';
 
@@ -290,12 +292,12 @@ export function Result() {
           </p>
         )}
 
-        <div className="-ml-3 mt-3 flex flex-wrap items-center gap-x-2">
-          <button type="button" className={quiet} onClick={() => void download()}>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <button type="button" className={secondary} onClick={() => void download()}>
             {ru.result.download(format)}
           </button>
           {shareable && (
-            <button type="button" className={quiet} onClick={() => void share()}>
+            <button type="button" className={secondary} onClick={() => void share()}>
               {ru.result.share}
             </button>
           )}

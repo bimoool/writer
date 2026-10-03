@@ -205,12 +205,47 @@ function prepare(blocks: KeywordBlock[], language: Lang): Prepared[] {
  */
 export function extractKeyphrases(blocks: KeywordBlock[], lang?: Lang): Keyphrase[][] {
   const language = lang ?? detectLang(blocks.map((b) => b.text).join(' '));
-  return prepare(blocks, language).map(({ tokens, minCount, target, budget }) =>
-    select(tokens, candidates(tokens), target, minCount, budget).map((c) => ({
+  return prepare(blocks, language).map(({ tokens, minCount, target, budget }) => {
+    const picked = select(tokens, candidates(tokens), target, minCount, budget).map((c) => ({
       start: tokens[c.from]!.start,
       end: tokens[c.to]!.end,
-    })),
-  );
+    }));
+    // Многословные фразы после укорачивания под лимит 30% могли занять места слишком мало: добираем до минимума.
+    return fillToMinimum(tokens, picked, minCount, budget);
+  });
+}
+
+/**
+ * Добирает фразы до минимума: сохранившиеся не трогает, недостающие берёт по весу. Если лимит покрытия не позволяет,
+ * фраза берётся одним самым весомым словом: минимум важнее лимита (SPEC §5 п.6).
+ */
+function fillToMinimum(tokens: ScoredToken[], current: Keyphrase[], minCount: number, budget: number): Keyphrase[] {
+  if (current.length >= minCount) return current;
+  const used = new Set<number>();
+  const stems = new Set<string>();
+  let covered = 0;
+  tokens.forEach((t, k) => {
+    if (!current.some((p) => t.start >= p.start && t.end <= p.end)) return;
+    used.add(k);
+    covered++;
+    if (t.significant) stems.add(t.stem);
+  });
+
+  const added: Keyphrase[] = [];
+  const ranked = [...candidates(tokens)].sort((a, b) => b.score - a.score || wordsOf(a) - wordsOf(b) || a.from - b.from);
+  for (const original of ranked) {
+    if (current.length + added.length >= minCount) break;
+    let c = original;
+    if (covered + wordsOf(c) > budget && wordsOf(c) > 1) c = { from: c.best, to: c.best, best: c.best, score: tokens[c.best]!.score };
+    if (!isFree(tokens, used, c)) continue;
+    const own = ownStems(tokens, c);
+    if (own.every((x) => stems.has(x))) continue;
+    added.push({ start: tokens[c.from]!.start, end: tokens[c.to]!.end });
+    for (let k = c.from; k <= c.to; k++) used.add(k);
+    own.forEach((x) => stems.add(x));
+    covered += wordsOf(c);
+  }
+  return [...current, ...added].sort((a, b) => a.start - b.start);
 }
 
 /**
@@ -227,36 +262,35 @@ export function topUpKeyphrases(blocks: KeywordBlock[], current: Keyphrase[][], 
 
   for (const bi of indices) {
     const info = prepared[bi];
-    if (!info || out[bi]!.length >= info.minCount) continue;
-    const { tokens, minCount, budget } = info;
-
-    const used = new Set<number>();
-    const stems = new Set<string>();
-    let covered = 0;
-    tokens.forEach((t, k) => {
-      if (!out[bi]!.some((p) => t.start >= p.start && t.end <= p.end)) return;
-      used.add(k);
-      covered++;
-      if (t.significant) stems.add(t.stem);
-    });
-
-    const added: Keyphrase[] = [];
-    const ranked = [...candidates(tokens)].sort((a, b) => b.score - a.score || wordsOf(a) - wordsOf(b) || a.from - b.from);
-    for (const original of ranked) {
-      if (out[bi]!.length + added.length >= minCount) break;
-      let c = original;
-      if (covered + wordsOf(c) > budget && wordsOf(c) > 1) c = { from: c.best, to: c.best, best: c.best, score: tokens[c.best]!.score };
-      if (!isFree(tokens, used, c)) continue;
-      const own = ownStems(tokens, c);
-      if (own.every((x) => stems.has(x))) continue;
-      added.push({ start: tokens[c.from]!.start, end: tokens[c.to]!.end });
-      for (let k = c.from; k <= c.to; k++) used.add(k);
-      own.forEach((x) => stems.add(x));
-      covered += wordsOf(c);
-    }
-    out[bi] = [...out[bi]!, ...added].sort((a, b) => a.start - b.start);
+    if (!info) continue;
+    out[bi] = fillToMinimum(info.tokens, out[bi]!, info.minCount, info.budget);
   }
   return out;
+}
+
+/**
+ * Сколько непересекающихся и не касающихся друг друга фраз вообще можно выбрать в тексте: в каждой цепочке подряд
+ * идущих значимых слов длиной k помещается ceil(k / 2) таких фраз (слова через одно). Если в блоке значимых слов
+ * меньше трёх, минимум в 3 фразы недостижим, и это не ошибка отбора.
+ */
+export function phraseCapacity(text: string, lang?: Lang): number {
+  const tokens = analyze(text, lang ?? detectLang(text));
+  let total = 0;
+  let run = 0;
+  const close = () => {
+    total += Math.ceil(run / 2);
+    run = 0;
+  };
+  for (const t of tokens) {
+    if (!t.significant) {
+      close();
+    } else {
+      if (run > 0 && !t.joinsPrev) close();
+      run++;
+    }
+  }
+  close();
+  return total;
 }
 
 /** Текст фраз, удобно для отладки и тестов. */

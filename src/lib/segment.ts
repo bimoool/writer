@@ -213,11 +213,24 @@ function chunkParagraph(p: Paragraph, limit: number, lang: Lang): string[] {
   const words = units.map((u) => wordsIn(p.text, u, lang));
   const groups = partition(words, limit);
 
-  // Правило 5: короткий хвост приклеиваем к предыдущему блоку, если вместе не больше лимит × 1.3.
-  const sizes = groups.map((g) => g.reduce((a, i) => a + words[i]!, 0));
-  const n = groups.length;
-  if (n > 1 && sizes[n - 1]! < SOFT_MIN_WORDS && sizes[n - 2]! + sizes[n - 1]! <= limit * TAIL_GLUE_FACTOR) {
-    groups[n - 2]!.push(...groups.pop()!);
+  // Правило 5: блок короче минимума (хвост, но и начало, и середина) приклеиваем к соседу, если вместе не больше
+  // лимит × 1.3. Предпочитаем предыдущего, а из двух подходящих соседей берём того, с кем получается короче блок.
+  const size = (g: number[]) => g.reduce((a, i) => a + words[i]!, 0);
+  const max = limit * TAIL_GLUE_FACTOR;
+  for (;;) {
+    let merged = false;
+    for (let k = 0; k < groups.length && groups.length > 1; k++) {
+      const own = size(groups[k]!);
+      if (own >= SOFT_MIN_WORDS) continue;
+      const prev = k > 0 ? size(groups[k - 1]!) + own : Infinity;
+      const next = k < groups.length - 1 ? size(groups[k + 1]!) + own : Infinity;
+      const pick = prev <= max && (prev <= next || next > max) ? k - 1 : next <= max ? k : -1;
+      if (pick < 0) continue;
+      groups.splice(pick, 2, [...groups[pick]!, ...groups[pick + 1]!]);
+      merged = true;
+      break;
+    }
+    if (!merged) break;
   }
 
   return groups.map((g) => p.text.slice(units[g[0]!]!.start, units[g[g.length - 1]!]!.end).trim());

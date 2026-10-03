@@ -142,6 +142,27 @@ describe('длинные абзацы (§6 п.2–5)', () => {
     expect(countWords(blocks[0]!.text)).toBe(49);
   });
 
+  it('короткое начало приклеивается к следующему блоку, а не остаётся отдельным (short: 5 + 24 слова)', () => {
+    const text = `${sentence(5, 'начало')} ${sentence(24, 'середина')} ${sentence(20, 'конец')}`;
+    const sizes = segment(text, 'short').map((b) => countWords(b.text));
+    expect(sizes.every((n) => n >= 8)).toBe(true);
+    expect(sizes.every((n) => n <= 25 * 1.3)).toBe(true);
+    expect(sizes.reduce((a, b) => a + b, 0)).toBe(49);
+  });
+
+  it('короткий блок в середине приклеивается к соседу', () => {
+    const text = `${sentence(24, 'первый')} ${sentence(4, 'мини')} ${sentence(24, 'третий')}`;
+    const sizes = segment(text, 'short').map((b) => countWords(b.text));
+    expect(sizes.every((n) => n >= 8)).toBe(true);
+  });
+
+  it('если приклеить некуда (оба соседа слишком большие), короткий блок остаётся', () => {
+    const text = `${sentence(30, 'первый')} ${sentence(3, 'мини')} ${sentence(30, 'третий')}`;
+    const sizes = segment(text, 'short').map((b) => countWords(b.text));
+    expect(sizes.reduce((a, b) => a + b, 0)).toBe(63);
+    expect(sizes.every((n) => n <= 25 * 1.3 || n === 30)).toBe(true);
+  });
+
   it('хвост не приклеивается, если вместе больше лимит × 1.3', () => {
     const text = `${sentence(45)} ${sentence(14)}`;
     expect(segment(text, 'medium').map((b) => countWords(b.text))).toEqual([45, 14]);

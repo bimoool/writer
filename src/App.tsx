@@ -29,7 +29,8 @@ export function App() {
 
   return (
     <div className="min-h-dvh bg-bg text-text">
-      <header className="flex items-center justify-between gap-2 px-4 py-2">
+      {/* В сессии шапка закрыта её слоем и не нужна; из порядка Tab она тоже убрана. */}
+      <header hidden={screen === 'session'} className="flex items-center justify-between gap-2 px-4 py-2">
         <span className="text-ui font-medium">{ru.appName}</span>
         <button
           type="button"
@@ -40,7 +41,7 @@ export function App() {
           {ru.settings.open}
         </button>
       </header>
-      <SaveErrorNotice />
+      {screen !== 'session' && <SaveErrorNotice />}
       {ready && <Current />}
       <SettingsPanel />
     </div>

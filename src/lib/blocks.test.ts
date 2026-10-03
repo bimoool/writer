@@ -308,3 +308,24 @@ describe('buildSegments', () => {
     expect(segs.map((s) => t.slice(s.start, s.end)).join('')).toBe(t);
   });
 });
+
+describe('склейка не обрезает фразы', () => {
+  it('у блока после ручной склейки может быть больше 6 фраз, все сохраняются', () => {
+    const phrase = (i: number) => ({ start: i * 6, end: i * 6 + 5 });
+    const mk = (id: string, from: number): Block => ({
+      id,
+      paragraphIndex: 0,
+      kind: 'text',
+      sourceText: Array.from({ length: 5 }, (_, i) => `слово${i}`).join(' ') + '.',
+      keyphrases: [0, 1, 2, 3].map((i) => phrase(i + from * 0)),
+      userText: '',
+      status: 'pending',
+      hints: emptyHints(),
+      typedChars: 0,
+      pastedChars: 0,
+      activeMs: 0,
+    });
+    const merged = mergeBlocks(mk('a', 0), mk('b', 0));
+    expect(merged.keyphrases.length).toBe(8);
+  });
+});

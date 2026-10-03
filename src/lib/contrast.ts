@@ -36,3 +36,11 @@ export function parseThemeTokens(css: string): Record<string, Record<string, str
   }
   return out;
 }
+
+/** Цвет fg с прозрачностью alpha поверх bg (как рисует браузер), в виде #rrggbb. */
+export function blend(fg: string, bg: string, alpha: number): string {
+  const f = parseHex(fg);
+  const b = parseHex(bg);
+  const hex = (i: number) => Math.round(f[i]! * alpha + b[i]! * (1 - alpha)).toString(16).padStart(2, '0');
+  return `#${hex(0)}${hex(1)}${hex(2)}`;
+}
