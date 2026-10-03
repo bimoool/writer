@@ -4,6 +4,10 @@
 
 /* Только наши токены: стандартная палитра и шкала Tailwind отключены. */
 @theme inline {
+  /* Шаг отступов в пикселях: корневой шрифт 15px, а Tailwind рассчитан на 16px, и min-h-10 давал 37,5px вместо 40px
+     (DESIGN §8: область нажатия от 40px). */
+  --spacing: 4px;
+
   --color-*: initial;
   --color-bg: var(--bg);
   --color-surface: var(--surface);
@@ -81,7 +85,7 @@
   }
   .row-actions {
     display: flex;
-    margin-left: -0.5rem;
+    margin-left: -8px;
     justify-self: start;
   }
   @media (hover: hover) and (min-width: 40rem) {
@@ -91,7 +95,7 @@
       right: 0;
       align-items: center;
       margin-left: 0;
-      padding-left: 1rem;
+      padding-left: 16px;
       background: var(--bg);
       opacity: 0;
       transition: opacity 120ms var(--ease-standard);
@@ -99,6 +103,130 @@
     .doc-row:hover .row-actions,
     .doc-row:focus-within .row-actions,
     .row-actions[data-persist] {
+      opacity: 1;
+    }
+  }
+
+  /* Маркер (DESIGN §6.2): подсветка нижних ~70% строки, лёгкий наклон верхней кромки (угол градиента 179deg),
+     отступ 0 .12em, при переносе на новую строку оформление повторяется. Цвет текста под маркером не меняется. */
+  .marker {
+    margin: 0 -0.12em;
+    padding: 0 0.12em;
+    border-radius: var(--radius-mark);
+    background-image: linear-gradient(179deg, transparent 0 28%, var(--marker-tint) 28% 100%);
+    background-repeat: no-repeat;
+    background-position: 0 0;
+    background-size: 100% 100%;
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+    cursor: pointer;
+  }
+  /* Подсказка, что нажатие уберёт подсветку. */
+  .marker:hover,
+  .marker:focus-visible {
+    background-image: linear-gradient(179deg, transparent 0 28%, color-mix(in oklab, var(--danger) 32%, transparent) 28% 100%);
+  }
+  /* Появление: ширина растёт слева направо за 250 мс, фразы блока по очереди с шагом 60 мс.
+     Единственное место с последовательным появлением. Запускается, когда блок попал в окно просмотра. */
+  .marker[data-reveal='pending'] {
+    background-size: 0% 100%;
+  }
+  .marker[data-reveal='in'] {
+    animation: marker-in 250ms var(--ease-standard) both;
+    animation-delay: calc(var(--i, 0) * 60ms);
+  }
+  @keyframes marker-in {
+    from {
+      background-size: 0% 100%;
+    }
+    to {
+      background-size: 100% 100%;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .marker[data-reveal] {
+      animation: none;
+      background-size: 100% 100%;
+    }
+  }
+
+  /* Точка разреза между предложениями. На мышке проявляется при наведении (увеличенная невидимая зона нажатия),
+     на сенсорных экранах и с клавиатуры работает режим «Разрезать» (.cut-row). */
+  .cut-gap {
+    position: relative;
+  }
+  @media (hover: hover) {
+    .cut-gap {
+      cursor: pointer;
+    }
+    .cut-gap::before {
+      content: '';
+      position: absolute;
+      inset-block: 0;
+      inset-inline: -0.4em;
+    }
+    .cut-gap::after {
+      content: '';
+      position: absolute;
+      inset-block: 0.1em;
+      left: 50%;
+      width: 2px;
+      margin-left: -1px;
+      background: var(--ink);
+      opacity: 0;
+      transition: opacity 120ms var(--ease-standard);
+    }
+    .cut-gap:hover::after {
+      opacity: 1;
+    }
+  }
+  .cut-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    width: 100%;
+    min-height: 40px;
+    color: var(--text-dim);
+    font-family: var(--font-sans);
+    font-size: 13px;
+    line-height: 1;
+    cursor: pointer;
+    transition: color 120ms var(--ease-standard);
+  }
+  .cut-row::before,
+  .cut-row::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--line);
+    transition: background-color 120ms var(--ease-standard);
+  }
+  .cut-row:hover,
+  .cut-row:focus-visible {
+    color: var(--ink);
+  }
+  .cut-row:hover::before,
+  .cut-row:hover::after,
+  .cut-row:focus-visible::before,
+  .cut-row:focus-visible::after {
+    background: var(--ink);
+  }
+
+  /* Действия блока: на устройствах с наведением видны при наведении и фокусе, на сенсорных всегда. */
+  .block-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 8px;
+    margin-left: -8px;
+  }
+  @media (hover: hover) {
+    .block-actions {
+      opacity: 0;
+      transition: opacity 120ms var(--ease-standard);
+    }
+    .block-item:hover .block-actions,
+    .block-item:focus-within .block-actions,
+    .block-actions[data-persist] {
       opacity: 1;
     }
   }

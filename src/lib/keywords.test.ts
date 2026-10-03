@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { APPENDIX_A } from './__fixtures__/appendix-a';
-import { extractKeyphrases, phraseTexts, targetCount } from './keywords';
+import { extractKeyphrases, phraseTexts, targetCount, topUpKeyphrases } from './keywords';
 import { segment } from './segment';
 import { countWords } from './tokens';
 
@@ -118,5 +118,54 @@ describe('правила отбора (SPEC §5)', () => {
 
   it('пустой блок не падает', () => {
     expect(forText('')).toEqual([]);
+  });
+});
+
+describe('topUpKeyphrases (добор после склейки и разреза)', () => {
+  const text = 'Исследования показывают, что люди, которые планируют свой день заранее, выполняют на 25% больше задач и испытывают меньше стресса.';
+  const other = { text: 'Техника Pomodoro помогает поддерживать концентрацию и предотвращает умственное истощение.' };
+  const range = (needle: string) => ({ start: text.indexOf(needle), end: text.indexOf(needle) + needle.length });
+
+  it('добирает до минимума, сохраняя уже имеющиеся фразы', () => {
+    const have = [range('25% больше задач')];
+    const [out] = topUpKeyphrases([{ text }, other], [have, []], [0]);
+    expect(out!.length).toBe(3);
+    expect(phraseTexts(text, out!)).toContain('25% больше задач');
+  });
+
+  it('новые фразы не пересекаются и не касаются существующих', () => {
+    const [out] = topUpKeyphrases([{ text }, other], [[range('25% больше задач')], []], [0]);
+    const sorted = [...out!].sort((a, b) => a.start - b.start);
+    sorted.forEach((p, i) => i && expect(p.start).toBeGreaterThan(sorted[i - 1]!.end));
+  });
+
+  it('минимум важнее лимита 30%: недостающие фразы берутся одним словом', () => {
+    const [out] = topUpKeyphrases([{ text }, other], [[range('25% больше задач')], []], [0]);
+    const extra = out!.filter((p) => p.start !== range('25% больше задач').start);
+    expect(extra.every((p) => !/\s/.test(text.slice(p.start, p.end)))).toBe(true);
+  });
+
+  it('блок, где фраз достаточно, не меняется, даже если их больше шести', () => {
+    const many = ['Исследования', 'люди', 'планируют', 'заранее', 'выполняют', '25%', 'задач', 'стресса'].map(range);
+    const [out] = topUpKeyphrases([{ text }, other], [many, []], [0]);
+    expect(out).toEqual(many);
+  });
+
+  it('трогает только блоки из indices', () => {
+    const out = topUpKeyphrases([{ text }, other], [[], []], [1]);
+    expect(out[0]).toEqual([]);
+    expect(out[1]!.length).toBe(3);
+  });
+
+  it('у заголовка достаточно одной фразы', () => {
+    const [out] = topUpKeyphrases([{ text: 'Техника Pomodoro', kind: 'heading' }], [[]], [0]);
+    expect(out!.length).toBe(1);
+  });
+
+  it('не мутирует переданные массивы', () => {
+    const have = [[range('25% больше задач')], []];
+    topUpKeyphrases([{ text }, other], have, [0, 1]);
+    expect(have[0]).toHaveLength(1);
+    expect(have[1]).toHaveLength(0);
   });
 });
