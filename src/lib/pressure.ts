@@ -20,13 +20,15 @@ export const VIGNETTE_RESET_MS = 150;
 
 /**
  * Причины паузы. Пока есть хоть одна, бездействие не копится, виньетки нет и ничего не стирается.
- * composition: идёт композиция IME или предиктивного ввода, слово ещё не дописано.
+ * Композиция IME паузой не считается: на Gboard последнее слово остаётся в композиции до пробела,
+ * и человек, который остановился посреди слова, иначе был бы навсегда защищён от давления.
  */
-export type PauseReason = 'hint' | 'peek' | 'hidden' | 'modal' | 'composition';
+export type PauseReason = 'hint' | 'peek' | 'hidden' | 'modal';
 
 /**
  * Виды активности в поле письма. Таймер запускают только ввод и композиция (первый ввод в блоке),
- * клавиши и перемещение каретки только сбрасывают уже идущий отсчёт.
+ * клавиши и перемещение каретки только сбрасывают уже идущий отсчёт. compositionstart, compositionupdate
+ * и compositionend приходят как composition: сбрасывают бездействие, но паузу не ставят.
  */
 export type ActivityKind = 'input' | 'composition' | 'key' | 'selection';
 
@@ -130,12 +132,18 @@ export function tick(s: PressureState, now: number): TickResult {
 export const steppedVignette = (v: number) => (v <= 0 ? 0 : Math.min(1, Math.ceil(v * 3 - 1e-9) / 3));
 
 export interface WordRange {
-  /** Отсюда текст обрезается: включает пробелы перед словом. */
+  /** Отсюда текст вырезается: без композиции включает пробелы перед словом, с композицией равен chunkStart. */
   start: number;
   /** Видимая часть, которая растворяется: от начала слова до конца без хвостовых пробелов. */
   chunkStart: number;
   chunkEnd: number;
-  /** Всегда длина текста. */
+  /** Досюда текст вырезается. Без композиции это длина текста, с композицией конец пробелов после слова. */
+  end: number;
+}
+
+/** Слово в композиции IME: [start, end) в тексте поля. */
+export interface CompositionRange {
+  start: number;
   end: number;
 }
 
@@ -155,7 +163,35 @@ export function lastWordRange(text: string, lang?: Lang): WordRange | null {
   return { start, chunkStart, chunkEnd, end: text.length };
 }
 
-export function removeLastWord(text: string, lang?: Lang): string {
-  const r = lastWordRange(text, lang);
-  return r ? text.slice(0, r.start) : text;
+/**
+ * Что стирает kamikaze. Без композиции это последнее слово текста. Если идёт композиция IME, слово в ней
+ * не дописано и не трогается: стирается последнее законченное слово перед ним, то есть перед фрагментом
+ * между пробелами, в котором идёт композиция. Текст начиная с этого фрагмента остаётся как есть.
+ * Законченных слов перед композицией нет: null, стирать нечего.
+ */
+export function erasableWordRange(text: string, composition: CompositionRange | null, lang?: Lang): WordRange | null {
+  if (!composition) return lastWordRange(text, lang);
+  let protectedFrom = Math.max(0, Math.min(composition.start, text.length));
+  while (protectedFrom > 0 && !/\s/u.test(text[protectedFrom - 1]!)) protectedFrom--;
+  const r = lastWordRange(text.slice(0, protectedFrom), lang);
+  if (!r) return null;
+  // Вырезаем слово с пробелами после него, а пробелы перед ним (в том числе разрыв абзаца) остаются:
+  // слово в композиции встаёт на место стёртого, «раз два тр» → «раз тр».
+  let end = r.chunkEnd;
+  while (end < protectedFrom && /\s/u.test(text[end]!)) end++;
+  return { ...r, start: r.chunkStart, end };
+}
+
+/** Текст без вырезанного слова. */
+export const cutWord = (text: string, r: WordRange) => text.slice(0, r.start) + text.slice(r.end);
+
+/**
+ * Где окажется граница после вырезания: позиции после слова сдвигаются влево на длину вырезанного,
+ * позиции внутри него встают на его начало. Нужна, чтобы каретка осталась в слове, которое идёт в композиции.
+ */
+export const shiftAfterCut = (pos: number, r: WordRange) => (pos >= r.end ? pos - (r.end - r.start) : Math.min(pos, r.start));
+
+export function removeLastWord(text: string, lang?: Lang, composition: CompositionRange | null = null): string {
+  const r = erasableWordRange(text, composition, lang);
+  return r ? cutWord(text, r) : text;
 }

@@ -5,13 +5,17 @@ import {
   clampDelaySec,
   createPressure,
   effectiveMode,
+  erasableWordRange,
   idleMs,
   lastWordRange,
   reducePressure,
+  cutWord,
   removeLastWord,
+  shiftAfterCut,
   steppedVignette,
   tick,
   type ActivityKind,
+  type CompositionRange,
   type PauseReason,
   type PressureState,
 } from './pressure';
@@ -26,9 +30,10 @@ const started = (mode: PressureMode, at = 0) => act(createPressure(mode, 7), at)
 
 /**
  * Модель UI: тики с шагом step, на deleteWord стираем слово из text и сообщаем редьюсеру.
+ * composing: в композиции последнее слово текста (так ведёт себя Gboard до пробела).
  * Возвращает моменты удалений, чтобы проверять ритм.
  */
-function simulate(s: PressureState, text: string, from: number, to: number, step = 16) {
+function simulate(s: PressureState, text: string, from: number, to: number, step = 16, composing = false) {
   let state = s;
   let current = text;
   const deletedAt: number[] = [];
@@ -38,12 +43,18 @@ function simulate(s: PressureState, text: string, from: number, to: number, step
     vignette = r.vignette;
     if (r.deleteWord) {
       state = reducePressure(state, { type: 'deleted' });
-      const next = removeLastWord(current, 'ru');
+      const next = removeLastWord(current, 'ru', composing ? tailComposition(current) : null);
       if (next !== current) deletedAt.push(t);
       current = next;
     }
   }
   return { state, text: current, deletedAt, vignette };
+}
+
+/** Композиция на последнем фрагменте текста: «раз дв» → [4, 6). */
+function tailComposition(text: string): CompositionRange {
+  const m = /\S*$/u.exec(text)!;
+  return { start: m.index, end: text.length };
 }
 
 describe('настройки', () => {
@@ -98,7 +109,6 @@ describe('soft', () => {
     let s = started('soft');
     expect(tick(s, DELAY + 4000).vignette).toBeGreaterThan(0.5);
     s = act(s, DELAY + 4000, kind);
-    if (kind === 'composition') s = resume(pause(s, 'composition', DELAY + 4000), 'composition', DELAY + 4000);
     expect(tick(s, DELAY + 4000).vignette).toBe(0);
     expect(tick(s, DELAY + 4000 + DELAY).vignette).toBe(0);
     expect(tick(s, DELAY + 4000 + DELAY + 2500).vignette).toBeCloseTo(0.5);
@@ -110,7 +120,7 @@ describe('soft', () => {
 });
 
 describe('паузы', () => {
-  it.each<PauseReason>(['hint', 'peek', 'hidden', 'modal', 'composition'])('%s: бездействие замирает и продолжается после снятия', (reason) => {
+  it.each<PauseReason>(['hint', 'peek', 'hidden', 'modal'])('%s: бездействие замирает и продолжается после снятия', (reason) => {
     let s = started('kamikaze');
     s = pause(s, reason, 3000);
     expect(tick(s, 3000 + 600_000)).toEqual({ vignette: 0, deleteWord: false });
@@ -167,15 +177,51 @@ describe('паузы', () => {
     expect(tick(s, 60_000).vignette).toBe(0);
   });
 
-  it('IME: пока идёт композиция, слова не стираются и виньетки нет', () => {
-    // compositionstart: активность и пауза; compositionend: активность и снятие паузы
+});
+
+describe('композиция IME (Gboard: слово в композиции до пробела)', () => {
+  it('compositionstart, compositionupdate и compositionend сбрасывают бездействие, но не ставят паузу', () => {
+    let s = started('soft');
+    s = act(s, 3000, 'composition'); // compositionstart
+    s = act(s, 3500, 'composition'); // compositionupdate
+    expect(s.pauses).toEqual([]);
+    expect(tick(s, 3500 + DELAY).vignette).toBe(0);
+    expect(tick(s, 3500 + DELAY + 2500).vignette).toBeCloseTo(0.5);
+  });
+
+  it('остановка посреди композиции включает давление как обычно', () => {
+    // «раз два тр|»: последнее событие compositionupdate на 2000, compositionend нет
     let s = started('kamikaze');
-    s = act(pause(s, 'composition', 1000), 1000, 'composition');
-    const during = simulate(s, 'раз дв', 1000, 60_000);
-    expect(during.text).toBe('раз дв');
-    expect(during.vignette).toBe(0);
-    s = act(resume(s, 'composition', 60_000), 60_000, 'composition');
-    expect(tick(s, 60_000 + DELAY - 1).vignette).toBe(0);
+    s = act(s, 2000, 'composition');
+    expect(tick(s, 2000 + DELAY - 1).vignette).toBe(0);
+    expect(tick(s, 2000 + DELAY + RAMP_MS - 1).vignette).toBeGreaterThan(0.99);
+    expect(tick(s, 2000 + DELAY + RAMP_MS).deleteWord).toBe(true);
+  });
+
+  it('стирание обходит слово в композиции: уходят законченные слова перед ним', () => {
+    let s = started('kamikaze');
+    s = act(s, 0, 'composition');
+    const at = DELAY + RAMP_MS;
+    const r = simulate(s, 'раз два тр', 0, at + DELETE_EVERY_MS, 1, true);
+    expect(r.deletedAt).toEqual([at, at + DELETE_EVERY_MS]);
+    expect(r.text).toBe('тр');
+  });
+
+  it('единственное слово в композиции не стирается, виньетка остаётся на максимуме', () => {
+    const s = act(started('kamikaze'), 0, 'composition');
+    const r = simulate(s, 'тр', 0, 120_000, 50, true);
+    expect(r.text).toBe('тр');
+    expect(r.deletedAt).toEqual([]);
+    expect(r.vignette).toBe(1);
+  });
+
+  it('композиция при правке done-блока не включает ничего', () => {
+    let s = createPressure(effectiveMode('kamikaze', 'done'), 3);
+    s = act(s, 0, 'composition');
+    s = act(s, 500, 'composition');
+    const r = simulate(s, 'уже готовый тек', 0, 300_000, 100, true);
+    expect(r.text).toBe('уже готовый тек');
+    expect(r.vignette).toBe(0);
   });
 });
 
@@ -319,6 +365,36 @@ describe('lastWordRange и removeLastWord', () => {
     const text = 'раз два, ';
     expect(lastWordRange(text, 'ru')).toEqual({ start: 3, chunkStart: 4, chunkEnd: 8, end: 9 });
     expect(text.slice(4, 8)).toBe('два,');
+  });
+
+  it('с композицией: пробел перед словом в композиции остаётся, первое слово уходит без пробела', () => {
+    expect(removeLastWord('раз два тр', 'ru', { start: 8, end: 10 })).toBe('раз тр');
+    expect(removeLastWord('раз тр', 'ru', { start: 4, end: 6 })).toBe('тр');
+    expect(removeLastWord('Привет, мир. Ка', 'ru', { start: 13, end: 15 })).toBe('Привет, Ка');
+    expect(removeLastWord('абзац\n\nновое сл', 'ru', { start: 13, end: 15 })).toBe('абзац\n\nсл');
+  });
+
+  it('с композицией: защищён весь фрагмент между пробелами, в котором она идёт', () => {
+    // Композиция «тр» прилеплена к «раз,»: фрагмент «раз,тр» не дописан целиком
+    expect(erasableWordRange('один раз,тр', { start: 9, end: 11 }, 'ru')).toEqual({ start: 0, chunkStart: 0, chunkEnd: 4, end: 5 });
+    expect(removeLastWord('один раз,тр', 'ru', { start: 9, end: 11 })).toBe('раз,тр');
+    expect(erasableWordRange('раз,тр', { start: 4, end: 6 }, 'ru')).toBeNull();
+  });
+
+  it('с композицией посреди текста: текст после неё не трогается', () => {
+    // Каретку вернули в середину: «раз два тр| три»
+    const text = 'раз два тр три';
+    const r = erasableWordRange(text, { start: 8, end: 10 }, 'ru')!;
+    expect(text.slice(r.chunkStart, r.chunkEnd)).toBe('два');
+    expect(cutWord(text, r)).toBe('раз тр три');
+    expect(shiftAfterCut(10, r)).toBe(6);
+    expect(shiftAfterCut(2, r)).toBe(2);
+  });
+
+  it('пустая композиция в начале или пробелы перед ней: стирать нечего', () => {
+    expect(erasableWordRange('', { start: 0, end: 0 }, 'ru')).toBeNull();
+    expect(erasableWordRange('  тр', { start: 2, end: 4 }, 'ru')).toBeNull();
+    expect(erasableWordRange('— тр', { start: 2, end: 4 }, 'ru')).toBeNull();
   });
 
   it('каждое удаление убирает ровно одно слово, пока они есть', () => {

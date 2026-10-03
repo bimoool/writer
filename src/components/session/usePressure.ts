@@ -2,11 +2,14 @@ import { useEffect, useRef, type RefObject } from 'react';
 import {
   WORD_FADE_MS,
   createPressure,
-  lastWordRange,
+  cutWord,
+  erasableWordRange,
   reducePressure,
+  shiftAfterCut,
   steppedVignette,
   tick,
   type ActivityKind,
+  type CompositionRange,
   type PauseReason,
   type PressureEvent,
   type WordRange,
@@ -25,11 +28,29 @@ function setVignette(el: HTMLElement, v: number) {
   el.dataset.level = value;
 }
 
-/** Новый текст поля и каретка в конце. Возвращает этот текст. */
-function replaceText(ta: HTMLTextAreaElement, next: string): string {
+/**
+ * Вырезает слово из поля. Без композиции каретка встаёт в конец; с композицией остаётся в слове,
+ * которое пишется, со сдвигом на длину вырезанного. Возвращает новый текст.
+ */
+function cutFromField(ta: HTMLTextAreaElement, range: WordRange, composing: boolean): string {
+  const { selectionStart, selectionEnd } = ta;
+  const next = cutWord(ta.value, range);
   ta.value = next;
-  ta.setSelectionRange(next.length, next.length);
+  if (composing) ta.setSelectionRange(shiftAfterCut(selectionStart, range), shiftAfterCut(selectionEnd, range));
+  else ta.setSelectionRange(next.length, next.length);
   return next;
+}
+
+/**
+ * Где в поле идёт композиция. Обычно каретка стоит в конце слова в композиции, и текст перед ней совпадает
+ * с data из compositionupdate. Если не совпал (IME не прислал data), берём пустой диапазон у каретки:
+ * erasableWordRange всё равно защищает весь фрагмент между пробелами, в котором стоит каретка.
+ */
+function compositionRange(ta: HTMLTextAreaElement, data: string): CompositionRange {
+  const end = ta.selectionEnd;
+  const start = end - data.length;
+  if (data && start >= 0 && ta.value.slice(start, end) === data) return { start, end };
+  return { start: end, end };
 }
 
 interface Options {
@@ -38,7 +59,7 @@ interface Options {
   delaySec: number;
   /** Блок в состоянии writing. В reading и dissolving давления нет. */
   active: boolean;
-  /** Причины паузы, которые знает экран. Скрытую вкладку и композицию хук отслеживает сам. */
+  /** Причины паузы, которые знает экран. Скрытую вкладку хук отслеживает сам. */
   paused: Record<'hint' | 'peek' | 'modal', boolean>;
   field: RefObject<HTMLTextAreaElement>;
   vignette: RefObject<HTMLDivElement>;
@@ -57,7 +78,8 @@ export function usePressure(opts: Options) {
   const { mode, delaySec, active, paused, field, vignette, reduced } = opts;
   const state = useRef(createPressure(mode, delaySec));
   const live = useRef(opts);
-  const composing = useRef(false);
+  /** Текст в композиции IME (data последнего compositionupdate) или null, если композиции нет. */
+  const composing = useRef<string | null>(null);
   const pending = useRef<{ timer: ReturnType<typeof setTimeout>; ghost: EraseGhost | null } | null>(null);
 
   useEffect(() => {
@@ -81,32 +103,35 @@ export function usePressure(opts: Options) {
     pending.current = null;
   };
 
-  const apply = (text: string, range: WordRange) => {
+  const apply = (text: string, range: WordRange, inComposition: boolean) => {
     const ta = field.current;
-    // Текст поменялся или началась композиция: стирать уже нельзя, это другие слова.
-    if (!ta || ta.value !== text || composing.current) return;
+    // Текст поменялся: стирать уже нельзя, это другие слова. Любое событие композиции и так отменяет стирание.
+    if (!ta || ta.value !== text) return;
     // Текст меняется прямо в том же поле, без пересоздания и без blur: фокус остаётся, клавиатура не закрывается.
     // Именно через сеттер value, а не setRangeText: React следит за значением через этот сеттер, и иначе,
     // если пользователь допечатает ровно стёртое, React счёл бы ввод «без изменений» и потерял его.
-    live.current.onErase(replaceText(ta, text.slice(0, range.start)));
+    live.current.onErase(cutFromField(ta, range, inComposition));
   };
 
   const erase = () => {
     const ta = field.current;
-    if (!ta || composing.current) return;
+    if (!ta) return;
     dispatch({ type: 'deleted' });
     const text = ta.value;
-    const range = lastWordRange(text, live.current.lang);
-    // Слов нет: стирать нечего, виньетка остаётся на максимуме.
+    const data = composing.current;
+    // Слово в композиции не дописано и не стирается: уходит последнее законченное слово перед ним.
+    const range = erasableWordRange(text, data === null ? null : compositionRange(ta, data), live.current.lang);
+    // Слов нет (или есть только слово в композиции): стирать нечего, виньетка остаётся на максимуме.
     if (!range) return;
+    const inComposition = data !== null;
     if (live.current.reduced) {
-      apply(text, range);
+      apply(text, range, inComposition);
       return;
     }
     const ghost = showEraseGhost(ta, range);
     const timer = setTimeout(() => {
       pending.current = null;
-      apply(text, range);
+      apply(text, range, inComposition);
       ghost?.remove();
     }, WORD_FADE_MS);
     pending.current = { timer, ghost };
@@ -126,9 +151,12 @@ export function usePressure(opts: Options) {
     }
   };
 
-  const composition = (on: boolean) => {
-    composing.current = on;
-    setPause('composition', on);
+  /**
+   * Состояние композиции из поля: текст в ней или null, когда она закончилась (или ушли из поля).
+   * Паузы нет: сами события композиции приходят в activity и сбрасывают бездействие (SPEC §7).
+   */
+  const composition = (data: string | null) => {
+    composing.current = data;
   };
 
   // Смена режима или задержки в настройках посреди блока.
@@ -151,6 +179,7 @@ export function usePressure(opts: Options) {
 
   useEffect(() => {
     if (!active || mode === 'off') {
+      composing.current = null;
       cancelPending();
       show(0);
       return;

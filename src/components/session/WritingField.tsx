@@ -24,8 +24,8 @@ interface Props {
   onPasteBlocked: () => void;
   /** Любая активность пользователя в поле (для давления, SPEC §7). */
   onActivity?: (kind: ActivityKind) => void;
-  /** Идёт ли композиция IME или предиктивного ввода: пока идёт, слово не дописано. */
-  onComposition?: (active: boolean) => void;
+  /** Композиция IME или предиктивного ввода: текст слова в ней или null, когда её нет. Слово в ней не дописано. */
+  onComposition?: (data: string | null) => void;
 }
 
 const CARET_PAD_PX = 16;
@@ -41,7 +41,7 @@ export function WritingField({ fieldRef, scrollRef, value, blocked, allowPaste, 
   const counter = useRef(initialCounter());
   const before = useRef({ length: value.length, selected: 0 });
   const live = useRef({ blocked, allowPaste, onPasteBlocked, onActivity, onComposition });
-  const composing = useRef(false);
+  const composing = useRef<string | null>(null);
 
   useEffect(() => {
     live.current = { blocked, allowPaste, onPasteBlocked, onActivity, onComposition };
@@ -50,10 +50,10 @@ export function WritingField({ fieldRef, scrollRef, value, blocked, allowPaste, 
   const activity = (kind: ActivityKind) => {
     if (!live.current.blocked) live.current.onActivity?.(kind);
   };
-  const setComposing = (active: boolean) => {
-    if (composing.current === active) return;
-    composing.current = active;
-    live.current.onComposition?.(active);
+  const setComposing = (data: string | null) => {
+    if (composing.current === data) return;
+    composing.current = data;
+    live.current.onComposition?.(data);
   };
 
   // Активность для давления. keydown на телефоне ненадёжен (Android IME шлёт keyCode 229, диктовка и автозамена
@@ -67,21 +67,29 @@ export function WritingField({ fieldRef, scrollRef, value, blocked, allowPaste, 
     const onSelection = () => {
       if (document.activeElement !== ta) return;
       const now = { value: ta.value, start: ta.selectionStart, end: ta.selectionEnd };
-      if (now.value === seen.value && (now.start !== seen.start || now.end !== seen.end)) activity('selection');
+      if (now.value === seen.value && (now.start !== seen.start || now.end !== seen.end)) {
+        // Каретку переставили без ввода: композиция, даже если браузер не прислал compositionend, кончилась.
+        setComposing(null);
+        activity('selection');
+      }
       seen = now;
     };
     const onKey = () => activity('key');
-    const onCompositionStart = () => {
-      setComposing(true);
+    // Композиция только активность, не пауза (SPEC §7): остановка посреди слова включает давление как обычно.
+    const onCompositionStart = (e: CompositionEvent) => {
+      setComposing(e.data ?? '');
       activity('composition');
     };
-    const onCompositionUpdate = () => activity('composition');
+    const onCompositionUpdate = (e: CompositionEvent) => {
+      setComposing(e.data ?? '');
+      activity('composition');
+    };
     const onCompositionEnd = () => {
-      setComposing(false);
+      setComposing(null);
       activity('composition');
     };
-    // Если композиция оборвалась без compositionend (ушли из поля), пауза не должна зависнуть.
-    const onBlur = () => setComposing(false);
+    // Если композиция оборвалась без compositionend (ушли из поля), её состояние не должно зависнуть.
+    const onBlur = () => setComposing(null);
     document.addEventListener('selectionchange', onSelection);
     ta.addEventListener('keydown', onKey);
     ta.addEventListener('compositionstart', onCompositionStart);
@@ -95,6 +103,7 @@ export function WritingField({ fieldRef, scrollRef, value, blocked, allowPaste, 
       ta.removeEventListener('compositionupdate', onCompositionUpdate);
       ta.removeEventListener('compositionend', onCompositionEnd);
       ta.removeEventListener('blur', onBlur);
+      setComposing(null);
     };
   }, [fieldRef]);
 
