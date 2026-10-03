@@ -1,0 +1,88 @@
+@import 'tailwindcss';
+@import './styles/fonts.css';
+@import './styles/tokens.css';
+
+/* Только наши токены: стандартная палитра и шкала Tailwind отключены. */
+@theme inline {
+  --color-*: initial;
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-line: var(--line);
+  --color-text: var(--text);
+  --color-text-dim: var(--text-dim);
+  --color-text-ghost: var(--text-ghost);
+  --color-marker: var(--marker);
+  --color-marker-tint: var(--marker-tint);
+  --color-ink: var(--ink);
+  --color-danger: var(--danger);
+  --color-transparent: transparent;
+
+  --font-*: initial;
+  --font-serif: 'Literata Variable', Georgia, serif;
+  --font-sans: 'Onest Variable', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono Variable', ui-monospace, monospace;
+
+  /* Шкала 13 / 15 / 20 / 26 / 34 */
+  --text-*: initial;
+  --text-meta: 13px;
+  --text-ui: 15px;
+  --text-body: 20px;
+  --text-body--line-height: 1.65;
+  --text-h2: 26px;
+  --text-h1: 34px;
+
+  --radius-*: initial;
+  --radius-surface: var(--radius-surface);
+  --radius-mark: var(--radius-mark);
+
+  --ease-standard: var(--ease-standard);
+}
+
+@layer base {
+  html {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans);
+    font-size: 15px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body {
+    min-height: 100dvh;
+    background: var(--bg);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--ink);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background: var(--marker-tint);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@layer components {
+  /* Колонка для чтения и письма (DESIGN §3): 20px, на мобильных 18px. */
+  .reading-column {
+    max-width: 64ch;
+    font-family: var(--font-serif);
+    font-size: 20px;
+    line-height: 1.65;
+  }
+
+  @media (max-width: 640px) {
+    .reading-column {
+      font-size: 18px;
+    }
+  }
+}

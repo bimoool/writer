@@ -1,0 +1,4 @@
+/* Шрифты ставятся пакетами @fontsource-variable, без CDN (DESIGN §3). */
+@import '@fontsource-variable/literata';
+@import '@fontsource-variable/onest';
+@import '@fontsource-variable/jetbrains-mono';

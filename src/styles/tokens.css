@@ -1,0 +1,50 @@
+/* Токены цвета трёх тем (DESIGN §2). Единственное место с hex-значениями. */
+:root,
+:root[data-theme='dark'] {
+  --bg: #171a21;
+  --surface: #1f232c;
+  --line: #2c313d;
+  --text: #e8e3d6;
+  --text-dim: #9095a0;
+  --text-ghost: #6e7383;
+  --marker: #e6c85a;
+  --marker-alpha: 0.24;
+  --ink: #8ea0f0;
+  --danger: #e05252;
+  color-scheme: dark;
+}
+
+:root[data-theme='light'] {
+  --bg: #f5f6f8;
+  --surface: #ffffff;
+  --line: #dfe2e8;
+  --text: #1c1f26;
+  --text-dim: #5e6370;
+  --text-ghost: #7d838f;
+  --marker: #f2d64b;
+  --marker-alpha: 0.55;
+  --ink: #3550c8;
+  --danger: #d33b3b;
+  color-scheme: light;
+}
+
+:root[data-theme='sepia'] {
+  --bg: #e8decb;
+  --surface: #f0e7d6;
+  --line: #d3c6ae;
+  --text: #3a3226;
+  --text-dim: #695d4b;
+  --text-ghost: #7e705a;
+  --marker: #ddb54a;
+  --marker-alpha: 0.42;
+  --ink: #4f44a8;
+  --danger: #b8432d;
+  color-scheme: light;
+}
+
+:root {
+  --marker-tint: color-mix(in srgb, var(--marker) calc(var(--marker-alpha) * 100%), transparent);
+  --radius-surface: 6px;
+  --radius-mark: 3px;
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+}
