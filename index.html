@@ -5,6 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="dark light" />
     <title>Своими словами</title>
+    <script>
+      // Тема до первой отрисовки, чтобы не мигала тёмная, пока грузятся настройки из IndexedDB.
+      try {
+        var t = localStorage.getItem('svoimi:theme');
+        if (t === 'dark' || t === 'light' || t === 'sepia') document.documentElement.dataset.theme = t;
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>
