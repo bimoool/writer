@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { APPENDIX_A } from '../__fixtures__/appendix-a';
 import { createDoc } from '../doc';
-import { assembleText, exportFileName, slugify, type ExportBlock } from './export';
+import { assembleMarkdown, assembleText, exportFileName, slugify, transliterate, type ExportBlock } from './export';
 
 const b = (paragraphIndex: number, userText: string, kind: ExportBlock['kind'] = 'text'): ExportBlock => ({ paragraphIndex, kind, userText });
 
@@ -59,15 +59,73 @@ describe('assembleText: блоки в текст по SPEC §10', () => {
   });
 });
 
-describe('имя файла', () => {
-  it('slug: нижний регистр, буквы и цифры остаются, остальное дефис', () => {
-    expect(slugify('Тайм-менеджмент и Pomodoro')).toBe('тайм-менеджмент-и-pomodoro');
-    expect(slugify('  Письмо   инвестору!  ')).toBe('письмо-инвестору');
-    expect(slugify('Отчёт 2026: итоги / план')).toBe('отчёт-2026-итоги-план');
+describe('assembleMarkdown', () => {
+  const src = (paragraphIndex: number, userText: string, sourceText: string, kind: ExportBlock['kind'] = 'text') => ({
+    paragraphIndex,
+    kind,
+    userText,
+    sourceText,
+  });
+  const blocks = [
+    src(0, 'Мой заголовок', 'Заголовок', 'heading'),
+    src(1, 'Своими словами.', 'Исходный абзац.'),
+    src(1, 'Ещё.', 'Второе предложение.'),
+    src(2, 'раз', 'один', 'list-item'),
+    src(3, 'два', 'два', 'list-item'),
+  ];
+
+  it('по умолчанию только текст пользователя', () => {
+    expect(assembleMarkdown(blocks)).toBe('## Мой заголовок\n\nСвоими словами. Ещё.\n\n- раз\n- два');
   });
 
-  it('пустое, из одних знаков и эмодзи: запасное имя', () => {
-    for (const t of ['', '   ', '...', '😀🎉']) expect(slugify(t)).toBe('text');
+  it('вместе с исходником: линия, заголовок и исходник цитатой с теми же абзацами, заголовками и списками', () => {
+    expect(assembleMarkdown(blocks, { withSource: true, sourceHeading: 'Исходник' })).toBe(
+      [
+        '## Мой заголовок\n\nСвоими словами. Ещё.\n\n- раз\n- два',
+        '---',
+        '## Исходник',
+        '> ## Заголовок\n>\n> Исходный абзац. Второе предложение.\n>\n> - один\n> - два',
+      ].join('\n\n'),
+    );
+  });
+
+  it('исходник попадает целиком, даже если блок пользователя пустой', () => {
+    const md = assembleMarkdown([src(0, '', 'Пропущенный блок.'), src(1, 'Есть.', 'Второй.')], { withSource: true, sourceHeading: 'Исходник' });
+    expect(md).toContain('> Пропущенный блок.');
+    expect(md.startsWith('Есть.')).toBe(true);
+  });
+
+  it('обычный абзац, похожий на разметку, экранируется', () => {
+    const md = assembleText([b(0, '# не заголовок'), b(1, '- не список'), b(2, '1. не нумерация'), b(3, '> не цитата'), b(4, '#хештег и -5 градусов')], {
+      markdown: true,
+    });
+    expect(md).toBe('\\# не заголовок\n\n\\- не список\n\n1\\. не нумерация\n\n\\> не цитата\n\n#хештег и -5 градусов');
+    // в .txt текст как есть
+    expect(assembleText([b(0, '# не заголовок')])).toBe('# не заголовок');
+  });
+});
+
+describe('имя файла', () => {
+  it('транслитерация с русского по SPEC §10', () => {
+    expect(transliterate('Съешь же ещё этих мягких французских булок, да выпей чаю')).toBe(
+      'sesh zhe eshche etikh myagkikh frantsuzskikh bulok, da vypey chayu',
+    );
+    expect(transliterate('Цапля, хорёк, щука, юла, йод, Ёлка, эхо')).toBe('tsaplya, khorek, shchuka, yula, yod, elka, ekho');
+  });
+
+  it('slug: латиница, цифры и дефис, нижний регистр', () => {
+    expect(slugify('Тайм-менеджмент и Pomodoro')).toBe('taym-menedzhment-i-pomodoro');
+    expect(slugify('  Письмо   инвестору!  ')).toBe('pismo-investoru');
+    expect(slugify('Отчёт 2026: итоги / план')).toBe('otchet-2026-itogi-plan');
+    expect(slugify('Café déjà vu')).toBe('cafe-deja-vu');
+  });
+
+  it('в имени нет ничего, кроме a-z, 0-9 и дефиса', () => {
+    for (const t of ['Привет, мир!', 'Ελληνικά и 中文', 'Ünïcödé — тест', 'ъъъ ььь']) expect(slugify(t)).toMatch(/^[a-z0-9-]+$/);
+  });
+
+  it('пустое, из одних знаков, эмодзи или неподдержанных алфавитов: запасное имя', () => {
+    for (const t of ['', '   ', '...', '😀🎉', '中文', 'ъь']) expect(slugify(t)).toBe('text');
   });
 
   it('длинное название обрезается без хвостового дефиса', () => {
@@ -77,6 +135,7 @@ describe('имя файла', () => {
   });
 
   it('exportFileName: slug и расширение', () => {
-    expect(exportFileName('Письмо инвестору', 'txt')).toBe('письмо-инвестору.txt');
+    expect(exportFileName('Письмо инвестору', 'txt')).toBe('pismo-investoru.txt');
+    expect(exportFileName('Тайм-менеджмент и Pomodoro', 'docx')).toBe('taym-menedzhment-i-pomodoro.docx');
   });
 });

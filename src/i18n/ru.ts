@@ -1,6 +1,16 @@
 import { plural } from '../lib/format';
 
 // Все строки интерфейса. Хардкод текста в компонентах запрещён (CLAUDE.md).
+
+/** «меньше минуты», «31 минута», «1 ч 5 мин». */
+function duration(ms: number): string {
+  const minutes = Math.round(ms / 60_000);
+  if (minutes < 1) return 'меньше минуты';
+  if (minutes < 60) return `${minutes} ${plural(minutes, 'минута', 'минуты', 'минут')}`;
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return m ? `${h} ч ${m} мин` : `${h} ч`;
+}
 export const ru = {
   appName: 'Своими словами',
   theme: {
@@ -106,8 +116,32 @@ export const ru = {
   },
   result: {
     title: 'Готово',
+    summary: (blocks: number, ms: number) => `${blocks} ${plural(blocks, 'блок', 'блока', 'блоков')}, ${duration(ms)}`,
+    metrics: 'Итоги',
+    ownWords: 'Свои слова',
+    ownWordsNote: 'Насколько формулировки отличаются от исходника',
+    ownWordsTooShort: 'Написано слишком мало, чтобы сравнить',
+    typedShare: 'Набрано вручную',
+    typedShareNone: 'Ничего не набрано',
+    peeks: 'Подглядываний',
+    words: 'Слов написано',
+    time: 'Время',
+    hints: (topics: number, skeleton: number, letters: number) => `Подсказки: темы ${topics}, скелет ${skeleton}, первые буквы ${letters}`,
+    percent: (n: number) => `${n}%`,
+    none: '—',
+    compare: 'Сравнение с исходником',
+    source: 'Исходник',
+    yours: 'Твой текст',
+    export: 'Сохранить текст',
+    format: 'Формат',
+    withSource: 'Вместе с исходником',
+    withSourceNote: 'Только для .md: после твоего текста идёт исходник цитатой',
+    ext: (ext: string) => `.${ext}`,
+    download: (ext: string) => `Скачать .${ext}`,
+    share: 'Поделиться файлом',
+    preparing: 'Готовлю файл',
+    exportFailed: 'Не получилось собрать файл. Попробуй другой формат или скопируй текст',
     copy: 'Скопировать',
-    downloadTxt: 'Скачать .txt',
     home: 'На главную',
     copied: 'Скопировано',
     copyFailed: 'Не получилось скопировать. Выдели текст и скопируй вручную',
@@ -124,4 +158,5 @@ export const ru = {
     unknown: 'Не получилось сохранить изменения. Пробую ещё раз; текст пока в этой вкладке, не закрывай её.',
   },
   progress: (current: number, total: number) => `${current} из ${total}`,
+  duration,
 } as const;
