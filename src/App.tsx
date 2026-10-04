@@ -33,11 +33,14 @@ export function App() {
       {/* В сессии шапка закрыта её слоем и не нужна; из порядка Tab она тоже убрана. */}
       <header hidden={screen === 'session'} className="flex items-center justify-between gap-2 px-4 py-2">
         <span className="text-ui font-medium">{ru.appName}</span>
+        {/* До загрузки настроек из базы панель не открываем: выбор перезаписали бы загруженные настройки.
+            Кнопка невидима, но место держит, чтобы шапка не прыгала. */}
         <button
           type="button"
           aria-haspopup="dialog"
+          disabled={!ready}
           onClick={() => useApp.getState().setSettingsOpen(true)}
-          className="-mr-2 min-h-10 rounded-surface px-2 text-meta text-text-dim transition-colors duration-[120ms] hover:text-text"
+          className={`-mr-2 min-h-10 rounded-surface px-2 text-meta text-text-dim transition-colors duration-[120ms] hover:text-text ${ready ? '' : 'invisible'}`}
         >
           {ru.settings.open}
         </button>
