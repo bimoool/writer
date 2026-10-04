@@ -47,6 +47,8 @@ export function createAutosaver<T>(opts: AutosaverOptions<T>): Autosaver<T> {
   let writing: Map<string, T> | null = null;
   let retry = baseRetry;
   let disposed = false;
+  /** Отменённые (удалённые) id: пачку, которая писалась в момент отмены, при ошибке нельзя возвращать в очередь. */
+  const cancelled = new Set<string>();
 
   const clear = () => {
     if (timer !== null) clearTimeout(timer);
@@ -88,7 +90,7 @@ export function createAutosaver<T>(opts: AutosaverOptions<T>): Autosaver<T> {
           writing = null;
           failed = true;
           // Возвращаем в очередь только то, что не успели обновить во время записи.
-          for (const [id, item] of batch) if (!queue.has(id)) queue.set(id, item);
+          for (const [id, item] of batch) if (!queue.has(id) && !cancelled.has(id)) queue.set(id, item);
           opts.onError?.(error);
         },
       );
@@ -105,7 +107,9 @@ export function createAutosaver<T>(opts: AutosaverOptions<T>): Autosaver<T> {
   return {
     schedule(item) {
       if (disposed) return;
-      queue.set(opts.getId(item), item);
+      const id = opts.getId(item);
+      cancelled.delete(id);
+      queue.set(id, item);
       const now = Date.now();
       firstChangeAt ??= now;
       const waited = now - firstChangeAt;
@@ -114,12 +118,13 @@ export function createAutosaver<T>(opts: AutosaverOptions<T>): Autosaver<T> {
     flush: () => run(),
     cancel(id) {
       queue.delete(id);
+      cancelled.add(id);
       if (queue.size === 0) {
         clear();
         firstChangeAt = null;
       }
     },
-    pending: () => [...[...(writing ?? [])].filter(([id]) => !queue.has(id)).map(([, item]) => item), ...queue.values()],
+    pending: () => [...[...(writing ?? [])].filter(([id]) => !queue.has(id) && !cancelled.has(id)).map(([, item]) => item), ...queue.values()],
     hasPending: () => queue.size > 0 || inFlight !== null,
     dispose() {
       disposed = true;

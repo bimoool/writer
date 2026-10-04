@@ -54,7 +54,11 @@ const sortDocs = (docs: Doc[]) => [...docs].sort((a, b) => b.updatedAt - a.updat
 function readRescue(): Doc[] {
   try {
     const raw = localStorage.getItem(RESCUE_KEY);
-    return raw ? (JSON.parse(raw) as Doc[]) : [];
+    const parsed: unknown = raw ? JSON.parse(raw) : [];
+    // Повреждённый снимок не должен ломать загрузку: берём только то, что похоже на документ.
+    return Array.isArray(parsed)
+      ? (parsed as Doc[]).filter((d) => d && typeof d.id === 'string' && typeof d.updatedAt === 'number' && Array.isArray(d.blocks))
+      : [];
   } catch {
     return [];
   }
@@ -104,8 +108,6 @@ export const useApp = create<AppState>((set, get) => {
         if (!repo) throw Object.assign(new Error('Хранилище не подключено'), { name: 'MissingAPIError' });
         const [stored, settings, session] = await Promise.all([repo.loadDocs(), repo.loadSettings(), repo.loadSession()]);
         const { merged, restored } = pickNewer(stored, readRescue());
-        if (restored.length) await repo.saveDocs(restored);
-        clearRescue();
         const currentDocId = session?.currentDocId && merged.some((d) => d.id === session.currentDocId) ? session.currentDocId : null;
         set({
           ready: true,
@@ -114,6 +116,12 @@ export const useApp = create<AppState>((set, get) => {
           currentDocId,
           screen: currentDocId ? (session?.screen ?? 'home') : 'home',
         });
+        // Восстановленное из снимка идёт через автосохранение: если запись снова упадёт (например, место кончилось),
+        // документы останутся в памяти и в очереди, а снимок сотрётся только после успешной записи (onSaved).
+        if (restored.length && saver) {
+          for (const d of restored) saver.schedule(d);
+          await saver.flush();
+        } else clearRescue();
       } catch (e) {
         // Без IndexedDB приложение работает в памяти и честно предупреждает, что ничего не сохранится.
         fail(e);
@@ -182,8 +190,10 @@ export const useApp = create<AppState>((set, get) => {
       if (frozen) return;
       const ids = new Set(docs.map((d) => d.id));
       set({ docs: sortDocs([...get().docs.filter((d) => !ids.has(d.id)), ...docs]) });
-      for (const d of docs) saver?.cancel(d.id);
-      await repo?.saveDocs(docs).then(() => set({ saveError: null }), fail);
+      // Через автосохранение: версия из копии вытесняет несохранённые правки того же документа, а при ошибке записи
+      // остаётся в очереди (повтор и аварийный снимок), а не пропадает молча.
+      for (const d of docs) saver?.schedule(d);
+      await saver?.flush();
     },
 
     flush: () => saver?.flush() ?? Promise.resolve(),

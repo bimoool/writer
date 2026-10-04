@@ -276,3 +276,73 @@ describe('вкладка отдала документы другой (lock)', (
     expect((await db.settings.get('settings'))?.value).toBeUndefined();
   });
 });
+
+describe('ошибки записи не теряют текст', () => {
+  const quota = () => Object.assign(new Error('full'), { name: 'QuotaExceededError' });
+
+  it('при запуске запись восстановленного из снимка падает: документы видны, снимок не стирается', async () => {
+    const doc = useApp.getState().createDocument(APPENDIX_A);
+    await useApp.getState().flush();
+    useApp.getState().updateDoc(doc.id, (d) => ({ ...d, title: 'Из снимка' }));
+    writeRescue();
+
+    db.close();
+    db = openDb(dbName);
+    const spy = vi.spyOn(db.docs, 'bulkPut').mockRejectedValue(quota());
+    useApp.setState({ ...initial }, true);
+    connectStore(createRepo(db), { delayMs: 50 });
+    await useApp.getState().hydrate();
+
+    expect(useApp.getState().docs.map((d) => d.title)).toEqual(['Из снимка']);
+    expect(useApp.getState().saveError).toBe('quota');
+    expect(localStorage.getItem('svoimi:rescue')).toContain('Из снимка');
+    // Новая правка другого документа и закрытие вкладки: снимок не теряет восстановленное.
+    useApp.getState().createDocument('Второй документ для проверки снимка.');
+    writeRescue();
+    expect(localStorage.getItem('svoimi:rescue')).toContain('Из снимка');
+
+    spy.mockRestore();
+    await useApp.getState().flush();
+    expect((await db.docs.get(doc.id))?.title).toBe('Из снимка');
+    expect(localStorage.getItem('svoimi:rescue')).toBeNull();
+  });
+
+  it('повреждённый снимок не опустошает список документов', async () => {
+    useApp.getState().createDocument(APPENDIX_A);
+    await useApp.getState().flush();
+    localStorage.setItem('svoimi:rescue', '{"not":"array"}');
+    await reload();
+    expect(useApp.getState().docs).toHaveLength(1);
+    expect(useApp.getState().saveError).toBeNull();
+  });
+
+  it('импорт копии при ошибке записи остаётся в очереди и в аварийном снимке', async () => {
+    const doc = useApp.getState().createDocument(APPENDIX_A);
+    await useApp.getState().flush();
+    const copy = { ...doc, id: 'imported', title: 'Из копии' };
+    const spy = vi.spyOn(db.docs, 'bulkPut').mockRejectedValueOnce(quota());
+    await useApp.getState().importDocs([copy]);
+    expect(useApp.getState().saveError).toBe('quota');
+    writeRescue();
+    expect(localStorage.getItem('svoimi:rescue')).toContain('Из копии');
+    spy.mockRestore();
+    await new Promise((r) => setTimeout(r, 2100));
+    expect((await db.docs.get('imported'))?.title).toBe('Из копии');
+  });
+
+  it('удалённый во время неудачной записи документ не возвращается повтором', async () => {
+    const doc = useApp.getState().createDocument(APPENDIX_A);
+    let reject!: (e: Error) => void;
+    const spy = vi.spyOn(db.docs, 'bulkPut').mockImplementationOnce(() => new Promise((_, r) => (reject = r)) as never);
+    const flushing = useApp.getState().flush();
+    await new Promise((r) => setTimeout(r, 5));
+    await useApp.getState().deleteDoc(doc.id);
+    writeRescue();
+    expect(localStorage.getItem('svoimi:rescue')).toBeNull();
+    reject(quota());
+    await flushing;
+    spy.mockRestore();
+    await new Promise((r) => setTimeout(r, 2100));
+    expect(await db.docs.get(doc.id)).toBeUndefined();
+  });
+});
