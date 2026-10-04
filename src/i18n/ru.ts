@@ -78,6 +78,8 @@ export const ru = {
     confirmNo: 'Оставить как есть',
     locked: 'Работа над текстом уже начата, поэтому разбивку менять нельзя',
     start: 'Начать',
+    startKey: 'Ctrl+Enter',
+    startKeyMac: '⌘↵',
     undo: 'Отменить',
     selectWords: 'Выбрать слова',
     selectHint: 'Стрелки двигают правую границу, Shift+стрелки левую. Enter добавляет, Esc выходит',

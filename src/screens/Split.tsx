@@ -8,6 +8,7 @@ import { detectLang } from '../lib/tokens';
 import type { BlockSize, Doc } from '../lib/types';
 import { changed, pushUndo, restoreSnapshot, snapshotOf, type Snapshot } from '../lib/undo';
 import { useApp } from '../store/app';
+import { isMac } from '../components/platform';
 
 const newId = () => crypto.randomUUID();
 const now = () => Date.now();
@@ -116,14 +117,25 @@ export function Split() {
     if (undoStack.current.length === 0) heading.current?.focus();
   };
   const undoRef = useRef(undo);
+  const confirmRef = useRef(confirmSize);
   useEffect(() => {
     undoRef.current = undo;
+    confirmRef.current = confirmSize;
   });
 
-  // Ctrl/Cmd+Z по физической клавише: работает и в другой раскладке.
+  // Ctrl/Cmd+Z и Ctrl/Cmd+Enter по физической клавише: работают и в другой раскладке.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.code !== 'KeyZ' || !(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey || e.defaultPrevented) return;
+      if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey || e.defaultPrevented || e.repeat) return;
+      // «Начать»; пока открыт вопрос о смене размера, сначала нужно ответить на него.
+      if ((e.code === 'Enter' || e.code === 'NumpadEnter') && !useApp.getState().settingsOpen && !confirmRef.current) {
+        const d = currentDoc();
+        if (!d) return;
+        e.preventDefault();
+        useApp.getState().openDocument(d.id, 'session');
+        return;
+      }
+      if (e.code !== 'KeyZ') return;
       if ((e.target as HTMLElement | null)?.closest('input, textarea, [contenteditable="true"]')) return;
       e.preventDefault();
       undoRef.current();
@@ -286,13 +298,17 @@ export function Split() {
           >
             {ru.split.undo}
           </button>
-          <button
-            type="button"
-            onClick={() => useApp.getState().openDocument(doc.id, 'session')}
-            className="min-h-10 rounded-surface bg-ink px-5 text-ui font-medium text-bg transition-colors duration-[120ms] hover:bg-ink-hover"
-          >
-            {editable ? ru.split.start : ru.home.doc.continue}
-          </button>
+          <div className="flex items-center gap-3">
+            <span className="kbd-hint text-meta text-text-dim">{isMac ? ru.split.startKeyMac : ru.split.startKey}</span>
+            <button
+              type="button"
+              aria-keyshortcuts="Control+Enter Meta+Enter"
+              onClick={() => useApp.getState().openDocument(doc.id, 'session')}
+              className="min-h-10 rounded-surface bg-ink px-5 text-ui font-medium text-bg transition-colors duration-[120ms] hover:bg-ink-hover"
+            >
+              {editable ? ru.split.start : ru.home.doc.continue}
+            </button>
+          </div>
         </div>
       </footer>
     </main>

@@ -4,6 +4,7 @@ import { SaveErrorNotice } from '../components/SaveErrorNotice';
 import { HintBar } from '../components/session/HintBar';
 import { HintPanel } from '../components/session/HintPanel';
 import { PreviousText } from '../components/session/PreviousText';
+import { isMac } from '../components/platform';
 import { keepFocus } from '../components/session/keepFocus';
 import { ReadingText } from '../components/session/ReadingText';
 import { WritingField, type FieldCounts } from '../components/session/WritingField';
@@ -37,7 +38,6 @@ const now = () => Date.now();
 /** Физическая клавиатура есть там, где есть наведение и точный указатель; на телефоне про Alt не говорим. */
 const hasPhysicalKeyboard = () => typeof matchMedia === 'function' && matchMedia('(hover: hover) and (pointer: fine)').matches;
 
-const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 
 interface StageProps {
   doc: Doc;
