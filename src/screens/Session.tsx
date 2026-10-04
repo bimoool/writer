@@ -498,10 +498,6 @@ function Stage({ doc, index, onEdit }: StageProps) {
           )}
         </div>
       </div>
-
-      <p className="sr-only" aria-live="polite">
-        {progress}
-      </p>
     </div>
   );
 }
@@ -520,5 +516,14 @@ export function Session() {
 
   if (!doc || finished) return null;
   const index = editIndex !== null && editIndex < frontier ? editIndex : frontier;
-  return <Stage key={`${doc.id}:${index}`} doc={doc} index={index} onEdit={setEditIndex} />;
+  return (
+    <>
+      <Stage key={`${doc.id}:${index}`} doc={doc} index={index} onEdit={setEditIndex} />
+      {/* Смена блока объявляется (DESIGN §8). Регион живёт вне Stage: Stage пересоздаётся для каждого блока,
+          а новый регион с уже готовым текстом скринридеры не зачитывают. */}
+      <p className="sr-only" aria-live="polite">
+        {ru.progress(index + 1, doc.blocks.length)}
+      </p>
+    </>
+  );
 }
