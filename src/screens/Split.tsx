@@ -299,7 +299,7 @@ export function Split() {
             {ru.split.undo}
           </button>
           <div className="flex items-center gap-3">
-            <span className="kbd-hint text-meta text-text-dim">{isMac ? ru.split.startKeyMac : ru.split.startKey}</span>
+            <span className="kbd-hint text-meta text-text-dim max-sm:hidden">{isMac ? ru.split.startKeyMac : ru.split.startKey}</span>
             <button
               type="button"
               aria-keyshortcuts="Control+Enter Meta+Enter"
