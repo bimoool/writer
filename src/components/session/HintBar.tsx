@@ -95,7 +95,10 @@ export function HintBar({ open, peeking, hidden, onToggle, onPeekStart, onPeekEn
         {...hold}
       >
         {ru.session.hints.peek}
-        <span className="hidden text-text-ghost sm:inline"> {ru.session.hints.hold}</span>
+        {/* Как пользоваться кнопкой: на десктопе в широком окне «удерживать», на сенсорных экранах всегда «держи»,
+            потому что подсказки при наведении там нет. */}
+        <span className="hold-note-fine hidden text-text-ghost sm:inline"> {ru.session.hints.hold}</span>
+        <span className="hold-note-touch text-text-dim"> {ru.session.hints.holdTouch}</span>
       </button>
     </div>
   );

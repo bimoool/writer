@@ -400,6 +400,20 @@
   }
 }
 
+/* Подпись к «Подглядеть»: на сенсорных экранах видна всегда, на десктопе как раньше. Вне слоёв, чтобы перебить
+   утилиты hidden и sm:inline. */
+.hold-note-touch {
+  display: none;
+}
+@media (hover: none), (pointer: coarse) {
+  .hold-note-touch {
+    display: inline;
+  }
+  .hold-note-fine {
+    display: none;
+  }
+}
+
 /* Низкий экран (подробнее у .session-root). Эти правила вне слоёв: утилита flex у строки лежит в слое utilities,
    который старше components, и перебила бы display: none. */
 @media (pointer: coarse) {
