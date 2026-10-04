@@ -1,5 +1,6 @@
 import { createRepo, openDb } from './db';
 import { connectStore, useApp, writeRescue } from './app';
+import { createTabLock } from './tabLock';
 
 /**
  * Запуск хранилища в браузере. Автосохранение срабатывает по debounce, а при уходе со страницы:
@@ -20,5 +21,7 @@ export function startPersistence(): void {
   window.addEventListener('pagehide', leave);
   window.addEventListener('beforeunload', leave);
 
-  void useApp.getState().hydrate();
+  // Документы загружаются, только когда другие вкладки дописали своё и замерли (tabLock.ts).
+  const tabs = createTabLock({ release: () => useApp.getState().lock() });
+  void tabs.claim().then(() => useApp.getState().hydrate());
 }

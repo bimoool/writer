@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { SaveErrorNotice } from './components/SaveErrorNotice';
 import { SettingsPanel } from './components/SettingsPanel';
+import { TabLockedNotice } from './components/TabLockedNotice';
 import { ru } from './i18n/ru';
 import { Home } from './screens/Home';
 import { Result } from './screens/Result';
@@ -44,6 +45,7 @@ export function App() {
       {screen !== 'session' && <SaveErrorNotice />}
       {ready && <Current />}
       <SettingsPanel />
+      <TabLockedNotice />
     </div>
   );
 }

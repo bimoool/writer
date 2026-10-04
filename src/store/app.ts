@@ -22,6 +22,8 @@ interface AppState {
   saveError: DbErrorKind | null;
   /** Открыта панель настроек (модальное окно; в сессии ставит давление на паузу). */
   settingsOpen: boolean;
+  /** Сервис открыли в другой вкладке: эта больше ничего не пишет (tabLock.ts). */
+  locked: boolean;
 
   hydrate(): Promise<void>;
   go(screen: Screen): void;
@@ -38,10 +40,14 @@ interface AppState {
   /** Записывает документы из резервной копии. Настройки из копии не применяются. */
   importDocs(docs: Doc[]): Promise<void>;
   flush(): Promise<void>;
+  /** Отдать документы другой вкладке: сразу перестать писать, дописать очередь и остановить автосохранение. */
+  lock(): Promise<void>;
 }
 
 let repo: Repo | null = null;
 let saver: Autosaver<Doc> | null = null;
+/** Вкладка отдала документы другой: любые записи отсюда затёрли бы более новый текст. */
+let frozen = false;
 
 const sortDocs = (docs: Doc[]) => [...docs].sort((a, b) => b.updatedAt - a.updatedAt);
 
@@ -78,6 +84,7 @@ export const useApp = create<AppState>((set, get) => {
     set({ saveError: classifyDbError(e) });
   };
   const persistSession = () => {
+    if (frozen) return;
     const { screen, currentDocId } = get();
     repo?.saveSession({ screen, currentDocId }).catch(fail);
   };
@@ -89,6 +96,7 @@ export const useApp = create<AppState>((set, get) => {
     docs: [],
     currentDocId: null,
     settingsOpen: false,
+    locked: false,
     saveError: null,
 
     async hydrate() {
@@ -119,6 +127,7 @@ export const useApp = create<AppState>((set, get) => {
     },
 
     setSettings(patch) {
+      if (frozen) return;
       const settings = { ...get().settings, ...patch };
       set({ settings });
       repo?.saveSettings(settings).then(() => set({ saveError: null }), fail);
@@ -134,6 +143,7 @@ export const useApp = create<AppState>((set, get) => {
 
     createDocument(source, opts = {}) {
       const doc = createDoc(source, { blockSize: get().settings.defaultBlockSize, ...opts });
+      if (frozen) return doc;
       set({ docs: [doc, ...get().docs], currentDocId: doc.id });
       saver?.schedule(doc);
       persistSession();
@@ -146,6 +156,7 @@ export const useApp = create<AppState>((set, get) => {
     },
 
     updateDoc(id, change) {
+      if (frozen) return;
       const old = get().docs.find((d) => d.id === id);
       if (!old) return;
       const doc = { ...change(old), id, updatedAt: Date.now() };
@@ -159,6 +170,7 @@ export const useApp = create<AppState>((set, get) => {
     },
 
     async deleteDoc(id) {
+      if (frozen) return;
       saver?.cancel(id);
       const wasCurrent = get().currentDocId === id;
       set({ docs: get().docs.filter((d) => d.id !== id), ...(wasCurrent ? { currentDocId: null, screen: 'home' } : {}) });
@@ -167,6 +179,7 @@ export const useApp = create<AppState>((set, get) => {
     },
 
     async importDocs(docs) {
+      if (frozen) return;
       const ids = new Set(docs.map((d) => d.id));
       set({ docs: sortDocs([...get().docs.filter((d) => !ids.has(d.id)), ...docs]) });
       for (const d of docs) saver?.cancel(d.id);
@@ -174,12 +187,24 @@ export const useApp = create<AppState>((set, get) => {
     },
 
     flush: () => saver?.flush() ?? Promise.resolve(),
+
+    async lock() {
+      frozen = true;
+      set({ locked: true, settingsOpen: false });
+      try {
+        await saver?.flush();
+      } finally {
+        // Повторные попытки после ошибки записали бы старую версию поверх работы в другой вкладке.
+        saver?.dispose();
+      }
+    },
   };
 });
 
 /** Подключает хранилище к стору. В тестах сюда передаётся БД на fake-indexeddb. */
 export function connectStore(r: Repo, opts: { delayMs?: number } = {}): void {
   saver?.dispose();
+  frozen = false;
   repo = r;
   saver = createAutosaver<Doc>({
     save: (docs) => r.saveDocs(docs),

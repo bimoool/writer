@@ -253,3 +253,26 @@ describe('резервная копия через стор', () => {
     expect(useApp.getState().docs).toEqual(before);
   });
 });
+
+describe('вкладка отдала документы другой (lock)', () => {
+  it('дописывает очередь и больше ничего не пишет: устаревшая версия не затирает новый текст', async () => {
+    const s = useApp.getState();
+    const doc = s.createDocument(APPENDIX_A);
+    s.updateDoc(doc.id, (d) => ({ ...d, title: 'до блокировки' }));
+    await useApp.getState().lock();
+    expect(useApp.getState().locked).toBe(true);
+    expect((await db.docs.get(doc.id))?.title).toBe('до блокировки');
+
+    // Другая вкладка пишет новый текст.
+    await db.docs.put({ ...(await db.docs.get(doc.id))!, title: 'из другой вкладки', updatedAt: Date.now() + 1000 });
+    // Старая вкладка: учёт времени, переименование, удаление, настройки — ничего не доходит до базы.
+    s.updateDoc(doc.id, (d) => ({ ...d, title: 'устаревшая' }));
+    s.renameDoc(doc.id, 'устаревшая');
+    await s.deleteDoc(doc.id);
+    s.setSettings({ pressure: 'kamikaze' });
+    await useApp.getState().flush();
+    await new Promise((r) => setTimeout(r, 120));
+    expect((await db.docs.get(doc.id))?.title).toBe('из другой вкладки');
+    expect((await db.settings.get('settings'))?.value).toBeUndefined();
+  });
+});
