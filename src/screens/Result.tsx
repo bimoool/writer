@@ -49,12 +49,26 @@ function BlockText({ block, side }: { block: Block; side: Side }) {
   return <p className={`whitespace-pre-wrap [overflow-wrap:anywhere] ${kind} ${text ? '' : 'text-text-ghost'}`}>{text || ru.result.none}</p>;
 }
 
-function Metric({ label, value, note }: { label: string; value: string; note?: string }) {
+/** Главная метрика: число крупно, подпись над ним, пояснение под ним. */
+function MainMetric({ label, value, note }: { label: string; value: string; note: string }) {
   return (
-    <div className="min-w-0">
+    <dl>
       <dt className="text-meta text-text-dim">{label}</dt>
-      <dd className="font-serif text-h2 tabular-nums text-text">{value}</dd>
-      {note && <dd className="max-w-[16rem] text-meta text-text-dim">{note}</dd>}
+      <dd className="font-serif text-h1 tabular-nums text-text">{value}</dd>
+      <dd className="max-w-[20rem] text-meta text-text-dim">{note}</dd>
+    </dl>
+  );
+}
+
+/** Второстепенный показатель в общем ряду: подпись и значение одной строкой. */
+function Stat({ label, value, note }: { label: string; value: string; note?: string }) {
+  return (
+    <div className="flex min-w-0 items-baseline gap-1.5">
+      <dt className="text-meta text-text-dim">{label}</dt>
+      <dd className="text-ui tabular-nums text-text">
+        {value}
+        {note && <span className="ml-1.5 text-meta text-text-dim">{note}</span>}
+      </dd>
     </div>
   );
 }
@@ -225,24 +239,25 @@ export function Result() {
           {ru.result.home}
         </button>
       </div>
-      <p className="mt-1 text-ui text-text-dim">{ru.result.summary(doc.blocks.length, metrics.activeMs)}</p>
+      <p className="mt-1 text-ui text-text-dim">{ru.result.summary(doc.blocks.length)}</p>
 
       <section aria-label={ru.result.metrics} className="mt-8">
-        <dl className="flex flex-wrap gap-x-10 gap-y-5">
-          <Metric
-            label={ru.result.ownWords}
-            value={ownWords === null ? ru.result.none : ru.result.percent(ownWords)}
-            note={ownWords === null ? ru.result.ownWordsTooShort : ru.result.ownWordsNote}
-          />
-          <Metric
+        <MainMetric
+          label={ru.result.ownWords}
+          value={ownWords === null ? ru.result.none : ru.result.percent(ownWords)}
+          note={ownWords === null ? ru.result.ownWordsTooShort : ru.result.ownWordsNote}
+        />
+        <dl className="mt-5 flex flex-wrap gap-x-6 gap-y-2 border-t border-line pt-4">
+          <Stat label={ru.result.time} value={ru.duration(metrics.activeMs)} />
+          <Stat label={ru.result.words} value={String(metrics.wordsWritten)} />
+          <Stat label={ru.result.hintsLabel} value={ru.result.hintsValue(metrics.opens[1], metrics.opens[2], metrics.opens[3])} />
+          <Stat label={ru.result.peeks} value={String(metrics.peeks)} />
+          <Stat
             label={ru.result.typedShare}
             value={typed === null ? ru.result.none : ru.result.percent(typed)}
             note={typed === null ? ru.result.typedShareNone : undefined}
           />
-          <Metric label={ru.result.words} value={String(metrics.wordsWritten)} />
-          <Metric label={ru.result.peeks} value={String(metrics.peeks)} />
         </dl>
-        <p className="mt-4 text-ui text-text-dim">{ru.result.hints(metrics.opens[1], metrics.opens[2], metrics.opens[3])}</p>
       </section>
 
       <section aria-labelledby={`${id}-export`} className="mt-10">

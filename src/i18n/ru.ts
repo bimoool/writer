@@ -132,7 +132,7 @@ export const ru = {
   },
   result: {
     title: 'Готово',
-    summary: (blocks: number, ms: number) => `${blocks} ${plural(blocks, 'блок', 'блока', 'блоков')}, ${duration(ms)}`,
+    summary: (blocks: number) => `${blocks} ${plural(blocks, 'блок', 'блока', 'блоков')}`,
     metrics: 'Итоги',
     ownWords: 'Свои слова',
     ownWordsNote: 'Насколько формулировки отличаются от исходника',
@@ -142,7 +142,8 @@ export const ru = {
     peeks: 'Подглядываний',
     words: 'Слов написано',
     time: 'Время',
-    hints: (topics: number, skeleton: number, letters: number) => `Подсказки: темы ${topics}, скелет ${skeleton}, первые буквы ${letters}`,
+    hintsLabel: 'Подсказки',
+    hintsValue: (topics: number, skeleton: number, letters: number) => `темы ${topics} · скелет ${skeleton} · буквы ${letters}`,
     percent: (n: number) => `${n}%`,
     none: '—',
     compare: 'Сравнение с исходником',
