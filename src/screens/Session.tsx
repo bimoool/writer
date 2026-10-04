@@ -377,17 +377,6 @@ function Stage({ doc, index, onEdit }: StageProps) {
           <button type="button" className={quiet} onClick={() => leave(() => useApp.getState().go('home'))}>
             {ru.session.toList}
           </button>
-          {/* Не забираем фокус у поля: после закрытия панели он вернётся туда, и клавиатура снова откроется. */}
-          <button
-            type="button"
-            aria-haspopup="dialog"
-            className={quiet}
-            onPointerDown={keepFocus}
-            onMouseDown={keepFocus}
-            onClick={() => useApp.getState().setSettingsOpen(true)}
-          >
-            {ru.settings.open}
-          </button>
         </div>
       </div>
 
