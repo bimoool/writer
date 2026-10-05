@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, type RefObject } from 'react';
-import { FIELD_NAMES, textareaProps } from '../../lib/fieldAttrs';
+import { FIELD_NAMES, textareaProps, type FieldName } from '../../lib/fieldAttrs';
 import type { ActivityKind } from '../../lib/pressure';
 import { countInput, initialCounter, isPasteInput, resetComposition } from '../../lib/typing';
 import { caretBox } from './caret';
@@ -20,6 +20,8 @@ interface Props {
   lang: string;
   mono: boolean;
   label: string;
+  /** Имя поля для атрибута name; по умолчанию поле письма. */
+  name?: FieldName;
   onChange: (value: string, counts: FieldCounts) => void;
   onPasteBlocked: () => void;
   /** Любая активность пользователя в поле (для давления, SPEC §7). */
@@ -37,7 +39,7 @@ const CARET_PAD_PX = 16;
  * - подсчёт набранного и вставленного по inputType без двойного счёта композиции IME;
  * - автовысота и каретка, которая не уходит под экранную клавиатуру.
  */
-export function WritingField({ fieldRef, scrollRef, value, blocked, allowPaste, lang, mono, label, onChange, onPasteBlocked, onActivity, onComposition }: Props) {
+export function WritingField({ fieldRef, scrollRef, value, blocked, allowPaste, lang, mono, label, name = FIELD_NAMES.retelling, onChange, onPasteBlocked, onActivity, onComposition }: Props) {
   const counter = useRef(initialCounter());
   const before = useRef({ length: value.length, selected: 0 });
   const live = useRef({ blocked, allowPaste, onPasteBlocked, onActivity, onComposition });
@@ -180,7 +182,7 @@ export function WritingField({ fieldRef, scrollRef, value, blocked, allowPaste, 
       lang={lang}
       aria-label={label}
       tabIndex={blocked ? -1 : 0}
-      {...textareaProps(FIELD_NAMES.retelling)}
+      {...textareaProps(name)}
       autoCorrect="on"
       className={`write-field reading-column max-w-none ${mono ? 'font-mono' : ''}`}
       onCompositionStart={() => {

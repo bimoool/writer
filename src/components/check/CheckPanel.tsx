@@ -4,8 +4,6 @@ import { STRUCTURE_RULES } from '../../lib/aiPatterns';
 import type { Finding, FindingKind } from '../../lib/findings';
 import type { TextCheck } from './useTextCheck';
 
-const secondary =
-  'min-h-12 rounded-surface border border-line px-4 text-ui text-text transition-colors duration-[120ms] hover:border-ink disabled:opacity-60';
 const quiet =
   'min-h-12 rounded-surface px-3 text-ui text-text-dim transition-colors duration-[120ms] hover:text-text disabled:opacity-60';
 const item =
@@ -128,19 +126,7 @@ export function CheckPanel({ check }: { check: TextCheck }) {
   const id = useId();
   const tabs = useRef<Record<FindingKind, HTMLButtonElement | null>>({ read: null, ai: null });
 
-  if (!check.started) {
-    return (
-      <section aria-labelledby={`${id}-title`} className="mt-10">
-        <h2 id={`${id}-title`} className="sr-only">
-          {ru.check.title}
-        </h2>
-        <button type="button" className={secondary} onClick={check.start}>
-          {ru.check.run}
-        </button>
-        <p className="mt-2 max-w-[32rem] text-meta text-text-dim">{ru.check.runNote}</p>
-      </section>
-    );
-  }
+  if (!check.started) return null;
 
   const onKey = (e: KeyboardEvent) => {
     const i = TABS.indexOf(check.tab);

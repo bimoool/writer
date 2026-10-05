@@ -37,7 +37,7 @@ describe('атрибуты текстовых полей', () => {
     for (const value of Object.values(FIELD_NAMES)) {
       for (const part of value.split('-')) expect(forbidden.has(part)).toBe(false);
     }
-    expect(Object.values(FIELD_NAMES)).toEqual(['retelling-text', 'source-text', 'doc-title']);
+    expect(Object.values(FIELD_NAMES)).toEqual(['retelling-text', 'result-edit', 'source-text', 'doc-title']);
   });
 
   it('у каждого поля своё имя', () => {

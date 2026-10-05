@@ -1,18 +1,17 @@
-import { Fragment, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { canShareFile, downloadBlob, shareFile } from '../components/download';
 import { CheckPanel } from '../components/check/CheckPanel';
 import { FindingCard } from '../components/check/FindingCard';
 import { useTextCheck } from '../components/check/useTextCheck';
+import { CompareTable, CompareTabs, type Marks, type Side } from '../components/result/Compare';
+import { useResultEdit } from '../components/result/useResultEdit';
 import { useMediaQuery } from '../components/useMediaQuery';
 import { ru } from '../i18n/ru';
-import type { CheckPart } from '../lib/checkText';
-import { markSegments, type Finding, type FindingKind } from '../lib/findings';
 import { computeMetrics, toPercent } from '../lib/metrics';
 import { frontierIndex } from '../lib/session';
 import { detectLang } from '../lib/tokens';
 import { assembleText, type ExportFormat } from '../lib/io/export';
 import { makeExportFile } from '../lib/io/exportFile';
-import type { Block } from '../lib/types';
 import { useApp } from '../store/app';
 
 const primary =
@@ -26,7 +25,6 @@ const FORMATS: ExportFormat[] = ['docx', 'md', 'txt'];
 /** Уже этой ширины колонки не помещаются, вместо них вкладки (SPEC §9). */
 const WIDE = '(min-width: 700px)';
 
-type Side = 'source' | 'yours';
 type Notice = 'copied' | 'copyFailed' | 'exportFailed' | null;
 
 /** Копирование. Clipboard API есть только в защищённом контексте (https), на обычном http работает запасной путь. */
@@ -45,48 +43,6 @@ async function copyText(text: string): Promise<boolean> {
     el.remove();
     return ok;
   }
-}
-
-/** Подсветка проверки в колонке «Твой текст» (SPEC §15.4). */
-interface Marks {
-  kind: FindingKind;
-  parts: CheckPart[];
-  findings: Finding[];
-  activeId: string | null;
-  open(id: string): void;
-}
-
-/** Текст блока с учётом вида: заголовок выделен, пункт списка с маркером. */
-function BlockText({ block, side, marks }: { block: Block; side: Side; marks?: Marks }) {
-  const text = (side === 'source' ? block.sourceText : block.userText).trim();
-  const kind = block.kind === 'heading' ? 'font-semibold' : block.kind === 'list-item' ? 'list-bullet' : '';
-  const part = side === 'yours' && marks ? marks.parts.find((p) => p.blockId === block.id) : undefined;
-  const segments = part && marks ? markSegments(part, marks.findings) : [];
-  let content: ReactNode = text || ru.result.none;
-  if (segments.length) {
-    const nodes: ReactNode[] = [];
-    let at = 0;
-    for (const seg of segments) {
-      if (seg.start > at) nodes.push(text.slice(at, seg.start));
-      nodes.push(
-        <button
-          key={seg.start}
-          type="button"
-          className={`mark mark-${marks!.kind}`}
-          data-finding={seg.ids.join(' ')}
-          aria-haspopup="dialog"
-          aria-expanded={seg.ids.includes(marks!.activeId ?? '')}
-          onClick={() => marks!.open(seg.ids[0]!)}
-        >
-          {text.slice(seg.start, seg.end)}
-        </button>,
-      );
-      at = seg.end;
-    }
-    if (at < text.length) nodes.push(text.slice(at));
-    content = nodes.map((n, i) => <Fragment key={i}>{n}</Fragment>);
-  }
-  return <p className={`whitespace-pre-wrap [overflow-wrap:anywhere] ${kind} ${text ? '' : 'text-text-ghost'}`}>{content}</p>;
 }
 
 /** Главная метрика: число крупно, подпись над ним, пояснение под ним. */
@@ -109,86 +65,6 @@ function Stat({ label, value, note }: { label: string; value: string; note?: str
         {value}
         {note && <span className="ml-1.5 text-meta text-text-dim">{note}</span>}
       </dd>
-    </div>
-  );
-}
-
-/** Сравнение на широком экране: таблица, строка на блок, так что блоки исходника и пересказа стоят друг напротив друга. */
-function CompareTable({ blocks, marks }: { blocks: Block[]; marks?: Marks }) {
-  return (
-    <table className="reading-column w-full max-w-none table-fixed border-collapse text-left">
-      <thead>
-        <tr>
-          <th scope="col" className="pb-2 pr-6 font-sans text-meta font-normal text-text-dim">
-            {ru.result.source}
-          </th>
-          <th scope="col" className="pb-2 pl-6 font-sans text-meta font-normal text-text-dim">
-            {ru.result.yours}
-          </th>
-        </tr>
-      </thead>
-      <tbody>
-        {blocks.map((b) => (
-          <tr key={b.id} className="border-t border-line align-top">
-            <td className="py-3 pr-6 text-text-dim">
-              <BlockText block={b} side="source" />
-            </td>
-            <td className="border-l border-line py-3 pl-6 text-text">
-              <BlockText block={b} side="yours" marks={marks} />
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
-}
-
-/** Сравнение на узком экране: две вкладки, стрелки влево и вправо переключают их (шаблон WAI-ARIA Tabs). */
-function CompareTabs({ blocks, marks, side, setSide }: { blocks: Block[]; marks?: Marks; side: Side; setSide: (s: Side) => void }) {
-  const id = useId();
-  const tabs = useRef<Record<Side, HTMLButtonElement | null>>({ source: null, yours: null });
-  const sides: Side[] = ['source', 'yours'];
-
-  const onKey = (e: KeyboardEvent) => {
-    const next: Side | null =
-      e.key === 'ArrowLeft' || e.key === 'Home' ? 'source' : e.key === 'ArrowRight' || e.key === 'End' ? 'yours' : null;
-    if (!next) return;
-    e.preventDefault();
-    setSide(next);
-    tabs.current[next]?.focus();
-  };
-
-  return (
-    <div>
-      <div role="tablist" aria-label={ru.result.compare} className="-ml-3 flex gap-1 border-b border-line" onKeyDown={onKey}>
-        {sides.map((s) => (
-          <button
-            key={s}
-            ref={(el) => {
-              tabs.current[s] = el;
-            }}
-            type="button"
-            role="tab"
-            id={`${id}-${s}-tab`}
-            aria-selected={side === s}
-            aria-controls={`${id}-${s}-panel`}
-            tabIndex={side === s ? 0 : -1}
-            onClick={() => setSide(s)}
-            className={`-mb-px min-h-12 border-b-2 px-3 text-ui transition-colors duration-[120ms] ${
-              side === s ? 'border-ink text-text' : 'border-transparent text-text-dim hover:text-text'
-            }`}
-          >
-            {s === 'source' ? ru.result.source : ru.result.yours}
-          </button>
-        ))}
-      </div>
-      <div role="tabpanel" id={`${id}-${side}-panel`} aria-labelledby={`${id}-${side}-tab`} tabIndex={0} className="reading-column max-w-none">
-        {blocks.map((b) => (
-          <div key={b.id} className={`border-b border-line py-3 ${side === 'source' ? 'text-text-dim' : 'text-text'}`}>
-            <BlockText block={b} side={side} marks={marks} />
-          </div>
-        ))}
-      </div>
     </div>
   );
 }
@@ -217,8 +93,15 @@ export function Result() {
   }, [doc, finished]);
   useEffect(() => () => clearTimeout(timer.current), []);
 
-  // Проверка текста (SPEC §15): до нажатия «Проверить текст» ничего не считается и словарь не грузится.
-  const check = useTextCheck(doc);
+  const settings = useApp((s) => s.settings);
+  const lang = useMemo(() => (doc ? detectLang(doc.source) : 'ru'), [doc]);
+  // Режим правки (SPEC §15.5): пока он включён, метрики и проверка считаются по снимку на входе в режим.
+  const editButton = useRef<HTMLButtonElement>(null);
+  const edit = useResultEdit(doc, settings.allowPaste, lang, () => requestAnimationFrame(() => editButton.current?.focus()));
+  const base = edit.frozen ?? doc;
+
+  // Проверка текста (SPEC §15): до нажатия «Проверить текст» ничего не считается.
+  const check = useTextCheck(base);
   const [side, setSide] = useState<Side>('yours');
   const returnFocus = useRef<HTMLElement | null>(null);
   const openFinding = (id: string | null) => {
@@ -239,12 +122,11 @@ export function Result() {
   const active = check.activeId ? allFindings.find((f) => f.id === check.activeId) : undefined;
   const view = { ...check, open: openFinding };
   const marks: Marks | undefined =
-    check.started && check.highlight && check.ct
+    check.started && check.highlight && check.ct && !edit.on
       ? { kind: check.tab, parts: check.ct.parts, findings: check.findings[check.tab], activeId: check.activeId, open: openFinding }
       : undefined;
 
-  const lang = useMemo(() => (doc ? detectLang(doc.source) : 'ru'), [doc]);
-  const metrics = useMemo(() => (doc ? computeMetrics(doc.blocks, lang) : null), [doc, lang]);
+  const metrics = useMemo(() => (base ? computeMetrics(base.blocks, lang) : null), [base, lang]);
   const text = useMemo(() => (doc ? assembleText(doc.blocks) : ''), [doc]);
 
   // «Вместе с исходником» есть только у .md.
@@ -258,7 +140,7 @@ export function Result() {
   // Файл собирается заранее, при выборе формата: «Поделиться» должно вызываться прямо в обработчике нажатия,
   // иначе Safari сочтёт его вызванным без жеста пользователя и откажет.
   useEffect(() => {
-    if (!doc || !finished) return;
+    if (!doc || !finished || edit.on) return;
     let alive = true;
     makeExportFile(doc, format, exportOptions).then(
       (file) => alive && setPrepared({ key: fileKey, file }),
@@ -269,7 +151,7 @@ export function Result() {
     };
     // flash читает только ref и setState
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fileKey]);
+  }, [fileKey, edit.on]);
 
   if (!doc || !finished || !metrics) return null;
 
@@ -387,10 +269,29 @@ export function Result() {
         </p>
       </section>
 
-      <CheckPanel check={view} />
+      <section aria-label={ru.check.title} className="mt-10">
+        <div className="flex flex-wrap items-center gap-2">
+          {!check.started && (
+            <button type="button" className={secondary} disabled={edit.on} onClick={check.start}>
+              {ru.check.run}
+            </button>
+          )}
+          <button ref={editButton} type="button" className={edit.on ? primary : secondary} aria-pressed={edit.on} onClick={edit.on ? edit.finish : edit.start}>
+            {edit.on ? ru.edit.done : ru.edit.start}
+          </button>
+        </div>
+        <p className="mt-2 max-w-[32rem] text-meta text-text-dim">{ru.edit.note}</p>
+        {!check.started && <p className="mt-1 max-w-[32rem] text-meta text-text-dim">{ru.check.runNote}</p>}
+        <p role="status" className="mt-1 min-h-5 max-w-[32rem] text-meta text-text-dim">
+          {edit.on ? (edit.api?.activeId ? '' : ru.edit.pick) : edit.restored ? ru.edit.restored : ''}
+        </p>
+        {edit.on && check.started && <p className="max-w-[32rem] text-meta text-text-dim">{ru.edit.paused}</p>}
+      </section>
+
+      {!edit.on && <CheckPanel check={view} />}
 
       <section aria-label={ru.result.compare} className="mt-10">
-        {wide ? <CompareTable blocks={doc.blocks} marks={marks} /> : <CompareTabs blocks={doc.blocks} marks={marks} side={side} setSide={setSide} />}
+        {wide ? <CompareTable blocks={doc.blocks} marks={marks} edit={edit.api} /> : <CompareTabs blocks={doc.blocks} marks={marks} edit={edit.api} side={side} setSide={setSide} />}
       </section>
       {active && <FindingCard check={view} finding={active} onClose={closeFinding} />}
     </main>

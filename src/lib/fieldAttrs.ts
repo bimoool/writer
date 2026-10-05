@@ -13,6 +13,8 @@
 export const FIELD_NAMES = {
   /** Поле письма в сессии. */
   retelling: 'retelling-text',
+  /** Поле правки блока на Result. */
+  resultEdit: 'result-edit',
   /** Поле вставки исходного текста на Home. */
   source: 'source-text',
   /** Поле переименования документа. */
