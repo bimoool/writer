@@ -185,7 +185,6 @@ export const ru = {
     tabRead: 'Читаемость',
     tabPatterns: 'Шаблоны',
     tabCompare: 'Сравнение',
-    count: (n: number) => String(n),
     highlightOn: 'Показать подсветку',
     highlightOff: 'Скрыть подсветку',
     inText: 'Показать в тексте',
@@ -228,7 +227,10 @@ export const ru = {
       rhythmStats: (mean: string, sd: string, cv: string) => `В среднем ${mean} слов в предложении, разброс ${sd}, коэффициент вариации ${cv}`,
       chains: 'Цепочки предложений одной длины',
       chainsNone: 'Цепочек предложений одной длины нет',
-      chain: (n: number, words: number[]) => `${n} ${plural(n, 'предложение', 'предложения', 'предложений')} подряд: ${words.join(', ')} ${plural(words[words.length - 1] ?? 0, 'слово', 'слова', 'слов')}`,
+      chain: (n: number, words: number[]) =>
+        `${n} ${plural(n, 'предложение', 'предложения', 'предложений')} подряд, ${
+          words.length > 5 ? (Math.min(...words) === Math.max(...words) ? `по ${words[0]}` : `по ${Math.min(...words)}–${Math.max(...words)}`) : words.join(', ')
+        } ${plural(words[words.length - 1] ?? 0, 'слово', 'слова', 'слов')}`,
       chainHint: 'Несколько предложений подряд почти одной длины. Живая речь обычно чередует короткие и длинные.',
       openings: 'Одинаковые начала',
       openingsNone: 'Одинаковых начал нет',

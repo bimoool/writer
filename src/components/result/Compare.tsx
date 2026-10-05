@@ -47,17 +47,25 @@ export function BlockText({ block, side, marks }: { block: Block; side: Side; ma
     for (const seg of segments) {
       if (seg.start > at) nodes.push(text.slice(at, seg.start));
       nodes.push(
-        <button
+        // Не <button>: кнопка всегда рисуется цельным блоком и длинная подсветка не переносилась бы по строкам.
+        <span
           key={seg.start}
-          type="button"
+          role="button"
+          tabIndex={0}
           className={`mark mark-${byId.get(seg.ids[0]!)?.tone ?? 'ai'}`}
           data-finding={seg.ids.join(' ')}
           aria-haspopup="dialog"
           aria-expanded={seg.ids.includes(marks!.activeId ?? '')}
           onClick={() => marks!.open(seg.ids[0]!)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              marks!.open(seg.ids[0]!);
+            }
+          }}
         >
           {text.slice(seg.start, seg.end)}
-        </button>,
+        </span>,
       );
       at = seg.end;
     }
@@ -80,7 +88,7 @@ function EditField({ number, edit }: { number: number; edit: EditApi }) {
     ta.setSelectionRange(ta.value.length, ta.value.length);
   }, []);
   return (
-    <div>
+    <div className="rounded-surface bg-surface px-3 pt-3">
       <WritingField
         fieldRef={field}
         scrollRef={noScroller}
@@ -109,7 +117,7 @@ function YourCell({ block, number, marks, edit }: { block: Block; number: number
   if (!edit)
     return (
       <>
-        {badge ? <p className="mb-1 font-sans text-meta text-text-dim"><span className="mark mark-carry">{ru.check.compare.blockBadge(badge)}</span></p> : null}
+        {badge ? <p className="mb-1 font-sans text-meta text-text-dim"><span className="badge-carry">{ru.check.compare.blockBadge(badge)}</span></p> : null}
         <BlockText block={block} side="yours" marks={marks} />
       </>
     );

@@ -161,6 +161,23 @@
     background: var(--mark-read);
     text-decoration: underline solid var(--marker);
   }
+  /* Значок блока и цитата в карточке: та же подсветка, но не кнопка. */
+  .badge-carry,
+  .quote-mark {
+    padding: 0 0.1em;
+    border-radius: var(--radius-mark);
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+  }
+  .badge-carry {
+    background: var(--mark-carry);
+    text-decoration: underline solid var(--danger);
+    text-decoration-thickness: 1.5px;
+    text-underline-offset: 0.22em;
+  }
+  .quote-mark {
+    background: var(--marker-tint);
+  }
   .mark-junk {
     background: var(--mark-junk);
     text-decoration: underline dotted var(--text-dim);

@@ -292,9 +292,8 @@ export function CheckPanel({ check }: { check: TextCheck }) {
           {check.highlight ? ru.check.highlightOff : ru.check.highlightOn}
         </button>
       </div>
-      <div role="tablist" aria-label={ru.check.tabs} className="-ml-3 mt-1 flex flex-wrap gap-1 border-b border-line" onKeyDown={onKey}>
+      <div role="tablist" aria-label={ru.check.tabs} className="-ml-2 mt-1 flex flex-wrap border-b border-line" onKeyDown={onKey}>
         {TABS.map((k) => {
-          const count = k === 'read' ? (check.readability ? check.readability.longSentences.length + check.readability.repeats.length : 0) : check.findings[k].length;
           return (
             <button
               key={k}
@@ -308,12 +307,11 @@ export function CheckPanel({ check }: { check: TextCheck }) {
               aria-controls={`${id}-${k}-panel`}
               tabIndex={check.tab === k ? 0 : -1}
               onClick={() => check.setTab(k)}
-              className={`-mb-px min-h-12 border-b-2 px-3 text-ui transition-colors duration-[120ms] ${
+              className={`-mb-px min-h-12 border-b-2 px-2 text-ui transition-colors duration-[120ms] ${
                 check.tab === k ? 'border-ink text-text' : 'border-transparent text-text-dim hover:text-text'
               }`}
             >
               {tabName(k)}
-              {count !== null && count > 0 && <span className="ml-1.5 text-meta tabular-nums text-text-dim">{ru.check.count(count)}</span>}
             </button>
           );
         })}

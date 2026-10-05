@@ -86,7 +86,7 @@ export function FindingCard({ check, finding, onClose }: { check: TextCheck; fin
           <p className="text-meta text-text-dim">{ru.check.compare.sourceBlock}</p>
           <p className="mt-0.5 font-serif text-text [overflow-wrap:anywhere]">
             {source.text.slice(0, source.start)}
-            <span className="mark mark-read">{source.text.slice(source.start, source.end)}</span>
+            <span className="quote-mark">{source.text.slice(source.start, source.end)}</span>
             {source.text.slice(source.end)}
           </p>
         </div>
