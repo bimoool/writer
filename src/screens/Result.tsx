@@ -1,7 +1,12 @@
-import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { Fragment, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { canShareFile, downloadBlob, shareFile } from '../components/download';
+import { CheckPanel } from '../components/check/CheckPanel';
+import { FindingCard } from '../components/check/FindingCard';
+import { useTextCheck } from '../components/check/useTextCheck';
 import { useMediaQuery } from '../components/useMediaQuery';
 import { ru } from '../i18n/ru';
+import type { CheckPart } from '../lib/checkText';
+import { markSegments, type Finding, type FindingKind } from '../lib/findings';
 import { computeMetrics, toPercent } from '../lib/metrics';
 import { frontierIndex } from '../lib/session';
 import { detectLang } from '../lib/tokens';
@@ -42,11 +47,46 @@ async function copyText(text: string): Promise<boolean> {
   }
 }
 
+/** Подсветка проверки в колонке «Твой текст» (SPEC §15.4). */
+interface Marks {
+  kind: FindingKind;
+  parts: CheckPart[];
+  findings: Finding[];
+  activeId: string | null;
+  open(id: string): void;
+}
+
 /** Текст блока с учётом вида: заголовок выделен, пункт списка с маркером. */
-function BlockText({ block, side }: { block: Block; side: Side }) {
+function BlockText({ block, side, marks }: { block: Block; side: Side; marks?: Marks }) {
   const text = (side === 'source' ? block.sourceText : block.userText).trim();
   const kind = block.kind === 'heading' ? 'font-semibold' : block.kind === 'list-item' ? 'list-bullet' : '';
-  return <p className={`whitespace-pre-wrap [overflow-wrap:anywhere] ${kind} ${text ? '' : 'text-text-ghost'}`}>{text || ru.result.none}</p>;
+  const part = side === 'yours' && marks ? marks.parts.find((p) => p.blockId === block.id) : undefined;
+  const segments = part && marks ? markSegments(part, marks.findings) : [];
+  let content: ReactNode = text || ru.result.none;
+  if (segments.length) {
+    const nodes: ReactNode[] = [];
+    let at = 0;
+    for (const seg of segments) {
+      if (seg.start > at) nodes.push(text.slice(at, seg.start));
+      nodes.push(
+        <button
+          key={seg.start}
+          type="button"
+          className={`mark mark-${marks!.kind}`}
+          data-finding={seg.ids.join(' ')}
+          aria-haspopup="dialog"
+          aria-expanded={seg.ids.includes(marks!.activeId ?? '')}
+          onClick={() => marks!.open(seg.ids[0]!)}
+        >
+          {text.slice(seg.start, seg.end)}
+        </button>,
+      );
+      at = seg.end;
+    }
+    if (at < text.length) nodes.push(text.slice(at));
+    content = nodes.map((n, i) => <Fragment key={i}>{n}</Fragment>);
+  }
+  return <p className={`whitespace-pre-wrap [overflow-wrap:anywhere] ${kind} ${text ? '' : 'text-text-ghost'}`}>{content}</p>;
 }
 
 /** Главная метрика: число крупно, подпись над ним, пояснение под ним. */
@@ -74,7 +114,7 @@ function Stat({ label, value, note }: { label: string; value: string; note?: str
 }
 
 /** Сравнение на широком экране: таблица, строка на блок, так что блоки исходника и пересказа стоят друг напротив друга. */
-function CompareTable({ blocks }: { blocks: Block[] }) {
+function CompareTable({ blocks, marks }: { blocks: Block[]; marks?: Marks }) {
   return (
     <table className="reading-column w-full max-w-none table-fixed border-collapse text-left">
       <thead>
@@ -94,7 +134,7 @@ function CompareTable({ blocks }: { blocks: Block[] }) {
               <BlockText block={b} side="source" />
             </td>
             <td className="border-l border-line py-3 pl-6 text-text">
-              <BlockText block={b} side="yours" />
+              <BlockText block={b} side="yours" marks={marks} />
             </td>
           </tr>
         ))}
@@ -104,9 +144,8 @@ function CompareTable({ blocks }: { blocks: Block[] }) {
 }
 
 /** Сравнение на узком экране: две вкладки, стрелки влево и вправо переключают их (шаблон WAI-ARIA Tabs). */
-function CompareTabs({ blocks }: { blocks: Block[] }) {
+function CompareTabs({ blocks, marks, side, setSide }: { blocks: Block[]; marks?: Marks; side: Side; setSide: (s: Side) => void }) {
   const id = useId();
-  const [side, setSide] = useState<Side>('yours');
   const tabs = useRef<Record<Side, HTMLButtonElement | null>>({ source: null, yours: null });
   const sides: Side[] = ['source', 'yours'];
 
@@ -146,7 +185,7 @@ function CompareTabs({ blocks }: { blocks: Block[] }) {
       <div role="tabpanel" id={`${id}-${side}-panel`} aria-labelledby={`${id}-${side}-tab`} tabIndex={0} className="reading-column max-w-none">
         {blocks.map((b) => (
           <div key={b.id} className={`border-b border-line py-3 ${side === 'source' ? 'text-text-dim' : 'text-text'}`}>
-            <BlockText block={b} side={side} />
+            <BlockText block={b} side={side} marks={marks} />
           </div>
         ))}
       </div>
@@ -177,6 +216,32 @@ export function Result() {
     else if (!finished) useApp.getState().go('session');
   }, [doc, finished]);
   useEffect(() => () => clearTimeout(timer.current), []);
+
+  // Проверка текста (SPEC §15): до нажатия «Проверить текст» ничего не считается и словарь не грузится.
+  const check = useTextCheck(doc);
+  const [side, setSide] = useState<Side>('yours');
+  const returnFocus = useRef<HTMLElement | null>(null);
+  const openFinding = (id: string | null) => {
+    if (id) {
+      returnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      setSide('yours');
+      requestAnimationFrame(() => document.querySelector(`[data-finding~="${id}"]`)?.scrollIntoView({ block: 'center' }));
+    }
+    check.open(id);
+  };
+  const closeFinding = () => {
+    check.open(null);
+    const back = returnFocus.current;
+    // Кнопка могла исчезнуть (подсветка выключена или слово заменено): тогда фокус на панель проверки.
+    requestAnimationFrame(() => (back?.isConnected ? back : document.querySelector<HTMLElement>('[data-check-panel]'))?.focus());
+  };
+  const allFindings = [...check.findings.spell, ...check.findings.read, ...check.findings.ai];
+  const active = check.activeId ? allFindings.find((f) => f.id === check.activeId) : undefined;
+  const view = { ...check, open: openFinding };
+  const marks: Marks | undefined =
+    check.started && check.highlight && check.ct
+      ? { kind: check.tab, parts: check.ct.parts, findings: check.findings[check.tab], activeId: check.activeId, open: openFinding }
+      : undefined;
 
   const lang = useMemo(() => (doc ? detectLang(doc.source) : 'ru'), [doc]);
   const metrics = useMemo(() => (doc ? computeMetrics(doc.blocks, lang) : null), [doc, lang]);
@@ -322,9 +387,12 @@ export function Result() {
         </p>
       </section>
 
+      <CheckPanel check={view} />
+
       <section aria-label={ru.result.compare} className="mt-10">
-        {wide ? <CompareTable blocks={doc.blocks} /> : <CompareTabs blocks={doc.blocks} />}
+        {wide ? <CompareTable blocks={doc.blocks} marks={marks} /> : <CompareTabs blocks={doc.blocks} marks={marks} side={side} setSide={setSide} />}
       </section>
+      {active && <FindingCard check={view} finding={active} onClose={closeFinding} />}
     </main>
   );
 }

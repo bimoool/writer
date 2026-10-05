@@ -1,6 +1,6 @@
 import nspell from 'nspell';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { isWordOk, misspelled, spellCandidates } from './spell';
+import { editDistance, isWordOk, misspelled, rankSuggestions, spellCandidates } from './spell';
 
 describe('какие слова проверяются', () => {
   const words = (t: string) => spellCandidates(t).map((c) => c.word);
@@ -23,6 +23,22 @@ describe('ё и е', () => {
   it('«еж» верно с поправкой на ё', () => expect(isWordOk('еж', ok)).toBe(true));
   it('«ёж» с ё в тексте и без неё в словаре', () => expect(isWordOk('ёж', (w) => w === 'еж')).toBe(true));
   it('неизвестное слово остаётся ошибкой', () => expect(isWordOk('ещо', ok)).toBe(false));
+});
+
+describe('варианты исправления', () => {
+  it('расстояние: замена, пропуск, перестановка', () => {
+    expect(editDistance('превет', 'привет')).toBe(1);
+    expect(editDistance('привте', 'привет')).toBe(1);
+    expect(editDistance('прет', 'привет')).toBe(2);
+  });
+  it('«привет» выше «ревет» для «превет», вариантов не больше трёх', () => {
+    const r = rankSuggestions('превет', ['ревет', 'поревет', 'преет', 'прервет', 'привет']);
+    expect(r[0]).toBe('привет');
+    expect(r).toHaveLength(3);
+  });
+  it('регистр не мешает', () => {
+    expect(rankSuggestions('Превет', ['ревет', 'Привет'])[0]).toBe('Привет');
+  });
 });
 
 describe('словарь ru (nspell)', () => {
@@ -48,5 +64,6 @@ describe('словарь ru (nspell)', () => {
 
   it('предлагает исправление', () => {
     expect(suggest('магазн')).toContain('магазин');
+    expect(rankSuggestions('превет', suggest('превет'))[0]).toBe('привет');
   }, 60_000);
 });

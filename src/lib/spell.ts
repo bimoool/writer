@@ -86,3 +86,34 @@ export function isWordOk(word: string, correct: (w: string) => boolean): boolean
 
 /** Слова из списка, которые словарь не знает. */
 export const misspelled = (words: string[], correct: (w: string) => boolean): string[] => words.filter((w) => !isWordOk(w, correct));
+
+/** Расстояние Дамерау — Левенштейна (вставка, удаление, замена, перестановка соседних букв). */
+export function editDistance(a: string, b: string): number {
+  const x = [...a.toLowerCase()];
+  const y = [...b.toLowerCase()];
+  const d: number[][] = Array.from({ length: x.length + 1 }, (_, i) => [i, ...Array<number>(y.length).fill(0)]);
+  for (let j = 1; j <= y.length; j++) d[0]![j] = j;
+  for (let i = 1; i <= x.length; i++) {
+    for (let j = 1; j <= y.length; j++) {
+      const cost = x[i - 1] === y[j - 1] ? 0 : 1;
+      d[i]![j] = Math.min(d[i - 1]![j]! + 1, d[i]![j - 1]! + 1, d[i - 1]![j - 1]! + cost);
+      if (i > 1 && j > 1 && x[i - 1] === y[j - 2] && x[i - 2] === y[j - 1]) d[i]![j] = Math.min(d[i]![j]!, d[i - 2]![j - 2]! + 1);
+    }
+  }
+  return d[x.length]![y.length]!;
+}
+
+/**
+ * Лучшие варианты исправления. Словарь отдаёт кандидатов в порядке, малополезном для опечаток («превет» → «ревет», «преет», …,
+ * «привет» в конце), поэтому порядок наш: меньше правок, затем та же длина (опечатка чаще замена или перестановка, чем
+ * пропуск), затем та же первая буква, затем порядок словаря.
+ */
+export function rankSuggestions(word: string, candidates: string[], limit = 3): string[] {
+  const score = (c: string, i: number) =>
+    editDistance(word, c) * 10 + ([...c].length === [...word].length ? 0 : 3) + (c[0]?.toLowerCase() === word[0]?.toLowerCase() ? 0 : 4) + i * 0.1;
+  return candidates
+    .map((c, i) => ({ c, s: score(c, i) }))
+    .sort((a, b) => a.s - b.s)
+    .slice(0, limit)
+    .map((x) => x.c);
+}

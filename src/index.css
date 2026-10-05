@@ -20,6 +20,9 @@
   --color-ink: var(--ink);
   --color-ink-hover: var(--ink-hover);
   --color-danger: var(--danger);
+  --color-mark-spell: var(--mark-spell);
+  --color-mark-read: var(--mark-read);
+  --color-mark-ai: var(--mark-ai);
   --color-transparent: transparent;
 
   --font-*: initial;
@@ -129,6 +132,41 @@
   .marker:hover,
   .marker:focus-visible {
     background-image: linear-gradient(179deg, transparent 0 28%, color-mix(in oklab, var(--danger) 32%, transparent) 28% 100%);
+  }
+
+  /* Подсветка проверки текста на Result. Цвет не единственный признак: у каждого вида своё подчёркивание.
+     Кнопка выглядит как текст вокруг (наследует шрифт и цвет), область нажатия не меньше самой строки. */
+  .mark {
+    display: inline;
+    margin: 0;
+    padding: 0 0.1em;
+    border: 0;
+    border-radius: var(--radius-mark);
+    font: inherit;
+    color: inherit;
+    text-align: inherit;
+    cursor: pointer;
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+    text-decoration-thickness: 1.5px;
+    text-underline-offset: 0.22em;
+    transition: background-color 120ms var(--ease-standard);
+  }
+  .mark-spell {
+    background: var(--mark-spell);
+    text-decoration: underline wavy var(--danger);
+  }
+  .mark-read {
+    background: var(--mark-read);
+    text-decoration: underline solid var(--marker);
+  }
+  .mark-ai {
+    background: var(--mark-ai);
+    text-decoration: underline dashed var(--ink);
+  }
+  .mark[aria-expanded='true'] {
+    outline: 2px solid var(--ink);
+    outline-offset: 1px;
   }
   /* Появление: ширина растёт слева направо за 250 мс, фразы блока по очереди с шагом 60 мс.
      Единственное место с последовательным появлением. Запускается, когда блок попал в окно просмотра. */
