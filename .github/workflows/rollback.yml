@@ -72,13 +72,25 @@ jobs:
       - name: Проверить сайт
         run: |
           set -u
+          # Хеш из нового current; у старых релизов version.txt нет, тогда проверка по хешу пропускается.
+          EXPECTED="$(ssh deploy-target "cat '$BASE_DIR/current/version.txt' 2>/dev/null || true" | tr -d '[:space:]')"
+          if [ -n "$EXPECTED" ]; then
+            echo "Ожидаемая версия: $EXPECTED"
+          else
+            echo "::warning::В новом current нет version.txt (старый релиз), проверка по хешу пропущена"
+          fi
           check() {
-            local headers body
+            local headers body served
             headers="$(curl -sSI --max-time 20 -H 'Cache-Control: no-cache' "$SITE_URL")" || return 1
             printf '%s\n' "$headers" | head -n1 | grep -qE '^HTTP/[0-9.]+ 200' || { echo "Статус не 200"; return 1; }
             printf '%s\n' "$headers" | grep -qi '^x-robots-tag:' || { echo "Нет заголовка x-robots-tag"; return 1; }
             body="$(curl -sS --max-time 20 -H 'Cache-Control: no-cache' "$SITE_URL")" || return 1
             printf '%s' "$body" | grep -qi '<script' || { echo "В теле нет тега script"; return 1; }
+            if [ -n "$EXPECTED" ]; then
+              served="$(curl -sS --max-time 20 -H 'Cache-Control: no-cache' "$SITE_URL/version.txt?nocache=$(date +%s%N)" | tr -d '[:space:]')" || return 1
+              echo "version.txt на сайте: ${served:-<пусто>}"
+              [ "$served" = "$EXPECTED" ] || { echo "Версия на сайте не совпала с $EXPECTED"; return 1; }
+            fi
           }
           for i in 1 2 3; do
             if check; then echo "Проверка пройдена"; exit 0; fi
