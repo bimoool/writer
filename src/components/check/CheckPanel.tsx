@@ -11,8 +11,8 @@ const quiet =
 const item =
   'flex min-h-11 w-full min-w-0 flex-col items-start rounded-surface px-3 py-2 text-left text-ui text-text transition-colors duration-[120ms] hover:bg-surface';
 
-const TABS: FindingKind[] = ['spell', 'read', 'ai'];
-const tabName = (k: FindingKind) => (k === 'spell' ? ru.check.tabSpell : k === 'read' ? ru.check.tabRead : ru.check.tabPatterns);
+const TABS: FindingKind[] = ['read', 'ai'];
+const tabName = (k: FindingKind) => (k === 'read' ? ru.check.tabRead : ru.check.tabPatterns);
 
 const flat = (n: number) => n.toFixed(1).replace('.', ',');
 
@@ -44,38 +44,6 @@ function FindingList({ check, list, label }: { check: TextCheck; list: Finding[]
         );
       })}
     </ul>
-  );
-}
-
-function SpellTab({ check }: { check: TextCheck }) {
-  const list = check.findings.spell;
-  if (check.spellStatus === 'error') {
-    return (
-      <div>
-        <p role="alert" className="text-ui text-danger">
-          {ru.check.spell.error}
-        </p>
-        <button type="button" className={`${secondary} mt-3`} onClick={check.retrySpell}>
-          {ru.check.spell.retry}
-        </button>
-      </div>
-    );
-  }
-  if (check.spellStatus === 'loading' || check.spellStatus === 'checking') {
-    return (
-      <p role="status" className="text-ui text-text-dim">
-        {check.spellStatus === 'loading' ? ru.check.spell.loading : ru.check.spell.checking}
-      </p>
-    );
-  }
-  return (
-    <div>
-      <p role="status" className="text-ui text-text">
-        {list.length === 0 ? ru.check.spell.none : ru.check.spell.found(list.length)}
-      </p>
-      <FindingList check={check} list={list} label={(f) => ({ title: f.kind === 'spell' ? f.word : '' })} />
-      <p className="mt-3 text-meta text-text-dim">{ru.check.spell.note}</p>
-    </div>
   );
 }
 
@@ -158,7 +126,7 @@ function PatternsTab({ check }: { check: TextCheck }) {
 /** Кнопка «Проверить текст» и панель с тремя вкладками (SPEC §15.4). Шаблон вкладок WAI-ARIA: стрелки переключают. */
 export function CheckPanel({ check }: { check: TextCheck }) {
   const id = useId();
-  const tabs = useRef<Record<FindingKind, HTMLButtonElement | null>>({ spell: null, read: null, ai: null });
+  const tabs = useRef<Record<FindingKind, HTMLButtonElement | null>>({ read: null, ai: null });
 
   if (!check.started) {
     return (
@@ -196,7 +164,7 @@ export function CheckPanel({ check }: { check: TextCheck }) {
       </div>
       <div role="tablist" aria-label={ru.check.tabs} className="-ml-3 mt-1 flex flex-wrap gap-1 border-b border-line" onKeyDown={onKey}>
         {TABS.map((k) => {
-          const count = k === 'spell' && check.spellStatus !== 'ready' ? null : k === 'read' ? (check.readability ? check.readability.longSentences.length + check.readability.repeats.length : 0) : check.findings[k].length;
+          const count = k === 'read' ? (check.readability ? check.readability.longSentences.length + check.readability.repeats.length : 0) : check.findings[k].length;
           return (
             <button
               key={k}
@@ -220,11 +188,8 @@ export function CheckPanel({ check }: { check: TextCheck }) {
           );
         })}
       </div>
-      <p role="status" className="sr-only">
-        {check.notice === 'replaced' ? ru.check.replaced : ''}
-      </p>
       <div role="tabpanel" id={`${id}-${check.tab}-panel`} aria-labelledby={`${id}-${check.tab}-tab`} data-check-panel tabIndex={-1} className="pt-4 outline-offset-4">
-        {check.tab === 'spell' ? <SpellTab check={check} /> : check.tab === 'read' ? <ReadTab check={check} /> : <PatternsTab check={check} />}
+        {check.tab === 'read' ? <ReadTab check={check} /> : <PatternsTab check={check} />}
       </div>
     </section>
   );

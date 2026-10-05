@@ -235,7 +235,7 @@ export function Result() {
     // Кнопка могла исчезнуть (подсветка выключена или слово заменено): тогда фокус на панель проверки.
     requestAnimationFrame(() => (back?.isConnected ? back : document.querySelector<HTMLElement>('[data-check-panel]'))?.focus());
   };
-  const allFindings = [...check.findings.spell, ...check.findings.read, ...check.findings.ai];
+  const allFindings = [...check.findings.read, ...check.findings.ai];
   const active = check.activeId ? allFindings.find((f) => f.id === check.activeId) : undefined;
   const view = { ...check, open: openFinding };
   const marks: Marks | undefined =

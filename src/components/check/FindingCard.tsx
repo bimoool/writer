@@ -1,48 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { ru } from '../../i18n/ru';
 import type { Finding } from '../../lib/findings';
 import type { TextCheck } from './useTextCheck';
-
-const choice =
-  'min-h-11 rounded-surface border border-line px-3 text-ui text-text transition-colors duration-[120ms] hover:border-ink';
-
-function Suggestions({ check, word, finding }: { check: TextCheck; word: string; finding: Finding }) {
-  const [list, setList] = useState<string[] | null>(null);
-  useEffect(() => {
-    let alive = true;
-    check.suggestions(word).then(
-      (l) => alive && setList(l),
-      () => alive && setList([]),
-    );
-    return () => {
-      alive = false;
-    };
-    // check.suggestions меняется вместе с движком; слово — то, что показывает карточка
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [word, check.suggestions]);
-  return (
-    <div className="mt-2">
-      <p className="text-meta text-text-dim">{ru.check.spell.suggestions}</p>
-      {list === null ? (
-        <p role="status" className="mt-1 text-ui text-text-dim">
-          {ru.check.spell.pickingSuggestions}
-        </p>
-      ) : list.length === 0 ? (
-        <p className="mt-1 text-ui text-text-dim">{ru.check.spell.noSuggestions}</p>
-      ) : (
-        <ul className="m-0 mt-1 flex list-none flex-wrap gap-2 p-0">
-          {list.map((s) => (
-            <li key={s}>
-              <button type="button" className={choice} onClick={() => check.replace(finding, s)}>
-                {ru.check.spell.replaceWith(s)}
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}
 
 /**
  * Пояснение к найденному месту. Закреплено внизу экрана (на телефоне это нижняя панель, на широком экране карточка),
@@ -55,17 +14,15 @@ export function FindingCard({ check, finding, onClose }: { check: TextCheck; fin
   }, [finding.id]);
 
   const title =
-    finding.kind === 'spell'
-      ? ru.check.spell.word(finding.word)
-      : finding.kind === 'read'
-        ? finding.sub === 'long'
-          ? ru.check.read.longSentence(finding.words)
-          : ru.check.read.repeat(finding.word, finding.count, finding.span)
-        : finding.detail?.dashes
-          ? ru.check.patterns.dashes(finding.detail.dashes, finding.detail.sentences ?? 0)
-          : finding.detail?.run
-            ? ru.check.patterns.even(finding.detail.run)
-            : (check.ct?.text.slice(finding.start, finding.end) ?? '');
+    finding.kind === 'read'
+      ? finding.sub === 'long'
+        ? ru.check.read.longSentence(finding.words)
+        : ru.check.read.repeat(finding.word, finding.count, finding.span)
+      : finding.detail?.dashes
+        ? ru.check.patterns.dashes(finding.detail.dashes, finding.detail.sentences ?? 0)
+        : finding.detail?.run
+          ? ru.check.patterns.even(finding.detail.run)
+          : (check.ct?.text.slice(finding.start, finding.end) ?? '');
   const body = finding.kind === 'ai' ? finding.hint : finding.kind === 'read' && finding.sub === 'repeat' ? ru.check.read.repeatHint : '';
 
   return (
@@ -90,7 +47,6 @@ export function FindingCard({ check, finding, onClose }: { check: TextCheck; fin
       </div>
       {body && <p className="mt-1 text-text-dim">{body}</p>}
       {finding.kind === 'ai' && <p className="mt-2 text-meta text-text-dim">{ru.check.patterns.note}</p>}
-      {finding.kind === 'spell' && <Suggestions key={finding.id} check={check} word={finding.word} finding={finding} />}
     </div>
   );
 }

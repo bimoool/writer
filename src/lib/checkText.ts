@@ -71,23 +71,3 @@ export function buildCheckText(blocks: CheckBlock[]): CheckText {
 
 /** Часть, в которую попадает позиция (конец куска не включается). */
 export const partAt = (parts: CheckPart[], pos: number): CheckPart | undefined => parts.find((p) => pos >= p.start && pos < p.end);
-
-/** Заменяет диапазон текста в userText блока. Диапазон должен лежать внутри одного куска. */
-export function replaceInBlock(userText: string, part: CheckPart, range: Range, replacement: string): string {
-  const from = part.lead + range.start - part.start;
-  const to = part.lead + range.end - part.start;
-  return userText.slice(0, from) + replacement + userText.slice(to);
-}
-
-/** Документ с исправленным текстом одного блока. Остальные поля блока (метрики набора, подсказки) не трогаются. */
-export function replaceInDoc<D extends { blocks: Array<{ id: string; userText: string }> }>(
-  doc: D,
-  part: CheckPart,
-  range: Range,
-  replacement: string,
-): D {
-  return {
-    ...doc,
-    blocks: doc.blocks.map((b) => (b.id === part.blockId ? { ...b, userText: replaceInBlock(b.userText, part, range, replacement) } : b)),
-  };
-}

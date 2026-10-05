@@ -1,7 +1,6 @@
 import 'fake-indexeddb/auto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { APPENDIX_A } from '../lib/__fixtures__/appendix-a';
-import { buildCheckText, partAt, replaceInDoc } from '../lib/checkText';
 import { DEFAULT_SETTINGS } from '../lib/doc';
 import { makeBackup, parseBackup, serializeBackup } from '../lib/io/backup';
 import { connectStore, useApp, writeRescue } from './app';
@@ -62,28 +61,6 @@ describe('документ переживает перезагрузку', () =>
     expect(d.currentIndex).toBe(1);
     expect(d.blocks[0]!.userText).toBe('Мой пересказ первого блока.');
     expect(d.blocks[1]).toMatchObject({ status: 'writing', userText: 'Начало второго' });
-  });
-
-  it('замена слова при проверке текста сохраняется как обычная правка (по debounce, без flush)', async () => {
-    const s = useApp.getState();
-    const doc = s.createDocument('Первый блок исходника для проверки замены слова. Второй блок исходника для проверки.');
-    s.updateDoc(doc.id, (d) => ({
-      ...d,
-      blocks: d.blocks.map((b) => ({ ...b, status: 'done', userText: ` Я сказал превет миру.${b.id === d.blocks[0]!.id ? '' : ' '}` })),
-    }));
-    const current = useApp.getState().docs[0]!;
-    const ct = buildCheckText(current.blocks);
-    const at = ct.text.indexOf('превет');
-    const part = partAt(ct.parts, at)!;
-    const before = current.updatedAt;
-    useApp.getState().updateDoc(doc.id, (d) => replaceInDoc(d, part, { start: at, end: at + 6 }, 'привет'));
-    expect(useApp.getState().docs[0]!.updatedAt).toBeGreaterThanOrEqual(before);
-    await new Promise((r) => setTimeout(r, 150));
-    await reload();
-    const after = useApp.getState().docs[0]!;
-    expect(after.blocks[0]!.userText).toBe(' Я сказал привет миру.');
-    // Остальные поля блока не тронуты.
-    expect(after.blocks[0]).toMatchObject({ status: 'done', typedChars: current.blocks[0]!.typedChars, pastedChars: current.blocks[0]!.pastedChars });
   });
 
   it('автосохранение срабатывает само по debounce, без flush', async () => {

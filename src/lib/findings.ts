@@ -1,24 +1,17 @@
-import type { CheckPart, CheckText, Range } from './checkText';
+import type { CheckPart, Range } from './checkText';
 import type { PatternFinding } from './aiCheck';
 import type { Readability } from './readability';
-import { spellCandidates } from './spell';
 
 /** Найденные места в общем виде: для подсветки в тексте и для карточки с пояснением (SPEC §15.4). */
 
-export type FindingKind = 'spell' | 'read' | 'ai';
+export type FindingKind = 'read' | 'ai';
 
 export type FindingData =
-  | { kind: 'spell'; word: string }
   | { kind: 'read'; sub: 'long'; words: number }
   | { kind: 'read'; sub: 'repeat'; word: string; count: number; span: number }
   | { kind: 'ai'; ruleId: string; hint: string; detail?: PatternFinding['detail'] };
 
 export type Finding = Range & { id: string } & FindingData;
-
-export const spellFindings = (ct: CheckText, bad: ReadonlySet<string>): Finding[] =>
-  spellCandidates(ct.text)
-    .filter((c) => bad.has(c.word))
-    .map((c) => ({ id: `spell:${c.start}`, kind: 'spell', word: c.word, start: c.start, end: c.end }));
 
 export function readFindings(r: Readability): Finding[] {
   const out: Finding[] = r.longSentences.map((s) => ({ id: `read:long:${s.start}`, kind: 'read', sub: 'long', words: s.words, start: s.start, end: s.end }));

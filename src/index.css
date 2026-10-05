@@ -20,7 +20,7 @@
   --color-ink: var(--ink);
   --color-ink-hover: var(--ink-hover);
   --color-danger: var(--danger);
-  --color-mark-spell: var(--mark-spell);
+  --color-mark-carry: var(--mark-carry);
   --color-mark-read: var(--mark-read);
   --color-mark-ai: var(--mark-ai);
   --color-transparent: transparent;
@@ -152,8 +152,8 @@
     text-underline-offset: 0.22em;
     transition: background-color 120ms var(--ease-standard);
   }
-  .mark-spell {
-    background: var(--mark-spell);
+  .mark-carry {
+    background: var(--mark-carry);
     text-decoration: underline wavy var(--danger);
   }
   .mark-read {

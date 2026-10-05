@@ -45,8 +45,8 @@
 :root {
   --ink-hover: color-mix(in oklab, var(--ink) 86%, var(--text));
   --marker-tint: color-mix(in srgb, var(--marker) calc(var(--marker-alpha) * 100%), transparent);
-  /* Подсветка проверки текста (DESIGN §5, Result): орфография, читаемость, шаблоны. Читаемость — обычный маркер. */
-  --mark-spell: color-mix(in srgb, var(--danger) 26%, transparent);
+  /* Подсветка проверки текста (DESIGN §5, Result): читаемость, шаблоны, перенос из исходника. Читаемость — обычный маркер. */
+  --mark-carry: color-mix(in srgb, var(--danger) 26%, transparent);
   --mark-read: var(--marker-tint);
   --mark-ai: color-mix(in srgb, var(--ink) 24%, transparent);
   --radius-surface: 6px;
