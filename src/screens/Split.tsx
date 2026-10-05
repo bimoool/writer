@@ -288,7 +288,7 @@ export function Split() {
       )}
 
       <footer className="sticky bottom-0 z-10 border-t border-line bg-bg">
-        <div className="mx-auto flex max-w-[46rem] items-center justify-between gap-4 px-4 py-3">
+        <div className="mx-auto flex max-w-[46rem] flex-wrap items-center justify-between gap-x-4 gap-y-1 px-4 py-3">
           <button
             type="button"
             disabled={undoDepth === 0}
@@ -298,7 +298,7 @@ export function Split() {
           >
             {ru.split.undo}
           </button>
-          <div className="flex items-center gap-3">
+          <div className="ml-auto flex items-center gap-3">
             <span className="kbd-hint text-meta text-text-dim max-sm:hidden">{isMac ? ru.split.startKeyMac : ru.split.startKey}</span>
             <button
               type="button"

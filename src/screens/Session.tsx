@@ -460,7 +460,7 @@ function Stage({ doc, index, onEdit }: StageProps) {
                 onPeekStart={beginPeek}
                 onPeekEnd={finishPeek}
               />
-              <div className="mt-2 flex items-center gap-2 sm:mt-0 sm:gap-4">
+              <div className="mt-2 flex flex-wrap items-center gap-2 sm:mt-0 sm:gap-4">
                 {/* Настройки без закрытия клавиатуры: верхняя панель на низком экране скрыта. Кнопка не берёт фокус у поля. */}
                 <button
                   type="button"
@@ -477,7 +477,7 @@ function Stage({ doc, index, onEdit }: StageProps) {
                     <circle cx="8" cy="17" r="2" />
                   </svg>
                 </button>
-                <button type="button" className={`${primary} flex-1 sm:flex-none`} onPointerDown={keepFocus} onMouseDown={keepFocus} onClick={done}>
+                <button type="button" className={`${primary} grow sm:grow-0`} onPointerDown={keepFocus} onMouseDown={keepFocus} onClick={done}>
                   {ru.session.done}
                 </button>
                 <span className="kbd-hint text-meta text-text-dim">{isMac ? ru.session.doneKeyMac : ru.session.doneKey}</span>

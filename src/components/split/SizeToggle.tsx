@@ -12,7 +12,7 @@ interface Props {
 /** Переключатель размера блоков: «Короткие / Средние / Длинные». */
 export function SizeToggle({ value, disabled, onChange }: Props) {
   return (
-    <div role="radiogroup" aria-label={ru.split.sizeLabel} className="flex w-full rounded-surface border border-line p-0.5 sm:w-auto">
+    <div role="radiogroup" aria-label={ru.split.sizeLabel} className="flex w-full flex-wrap rounded-surface border border-line p-0.5 sm:w-auto">
       {SIZES.map((size) => (
         <button
           key={size}
@@ -21,7 +21,7 @@ export function SizeToggle({ value, disabled, onChange }: Props) {
           aria-checked={value === size}
           disabled={disabled}
           onClick={() => onChange(size)}
-          className={`min-h-10 flex-1 rounded-surface px-3 text-meta transition-colors duration-[120ms] disabled:cursor-default sm:flex-none ${
+          className={`min-h-10 grow rounded-surface px-3 text-meta transition-colors duration-[120ms] disabled:cursor-default sm:grow-0 ${
             value === size ? 'bg-surface text-text' : 'text-text-dim enabled:hover:text-text'
           }`}
         >
