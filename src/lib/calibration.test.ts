@@ -35,17 +35,19 @@ const MATERIALS: Record<string, string> = {
 function hits(text: string): Record<string, number> {
   const t = ct(text);
   const out: Record<string, number> = {};
-  const add = (id: string, n = 1) => (out[id] = (out[id] ?? 0) + n);
+  const add = (id: string, n = 1) => {
+    if (n > 0) out[id] = (out[id] ?? 0) + n;
+  };
   for (const f of findPatterns(t)) add(f.ruleId);
   const rh = analyzeRhythm(t);
   if (rh.status === 'even') add('rhythm-even');
-  for (const _ of rh.chains) add('rhythm-chain');
-  for (const _ of findOpenings(t)) add('openings');
+  add('rhythm-chain', rh.chains.length);
+  add('openings', findOpenings(t).length);
   const dv = analyzeDiversity(t);
-  for (const w of dv.windows) if (w.low) add('diversity-low');
+  add('diversity-low', dv.windows.filter((w) => w.low).length);
   const r = analyzeReadability(t);
-  for (const _ of r.longSentences) add('long-sentence');
-  for (const _ of r.repeats) add('word-repeat');
+  add('long-sentence', r.longSentences.length);
+  add('word-repeat', r.repeats.length);
   return out;
 }
 
