@@ -2,7 +2,7 @@ import { Fragment, useEffect, useId, useRef, type KeyboardEvent, type ReactNode 
 import { ru } from '../../i18n/ru';
 import type { CheckPart } from '../../lib/checkText';
 import { FIELD_NAMES } from '../../lib/fieldAttrs';
-import { markSegments, type Finding, type FindingKind } from '../../lib/findings';
+import { markSegments, type Finding } from '../../lib/findings';
 import type { Block } from '../../lib/types';
 import { WritingField, type FieldCounts } from '../session/WritingField';
 
@@ -22,10 +22,11 @@ export interface EditApi {
 
 /** Подсветка проверки в колонке «Твой текст» (SPEC §15.4). */
 export interface Marks {
-  kind: FindingKind;
   parts: CheckPart[];
   findings: Finding[];
   activeId: string | null;
+  /** Блоки с наибольшим числом перенесённых из исходника фраз: id блока → число (вкладка «Сравнение»). */
+  badges?: Map<string, number>;
   open(id: string): void;
 }
 
@@ -35,6 +36,7 @@ export function BlockText({ block, side, marks }: { block: Block; side: Side; ma
   const kind = block.kind === 'heading' ? 'font-semibold' : block.kind === 'list-item' ? 'list-bullet' : '';
   const part = side === 'yours' && marks ? marks.parts.find((p) => p.blockId === block.id) : undefined;
   const segments = part && marks ? markSegments(part, marks.findings) : [];
+  const byId = new Map(marks?.findings.map((f) => [f.id, f]));
   let content: ReactNode = text || ru.result.none;
   if (segments.length) {
     const nodes: ReactNode[] = [];
@@ -45,7 +47,7 @@ export function BlockText({ block, side, marks }: { block: Block; side: Side; ma
         <button
           key={seg.start}
           type="button"
-          className={`mark mark-${marks!.kind}`}
+          className={`mark mark-${byId.get(seg.ids[0]!)?.tone ?? 'ai'}`}
           data-finding={seg.ids.join(' ')}
           aria-haspopup="dialog"
           aria-expanded={seg.ids.includes(marks!.activeId ?? '')}
@@ -100,7 +102,14 @@ function EditField({ number, edit }: { number: number; edit: EditApi }) {
 
 /** Ячейка «Твой текст»: обычный текст, в режиме правки нажимаемый блок, а выбранный блок поле ввода. */
 function YourCell({ block, number, marks, edit }: { block: Block; number: number; marks?: Marks; edit?: EditApi }) {
-  if (!edit) return <BlockText block={block} side="yours" marks={marks} />;
+  const badge = marks?.badges?.get(block.id);
+  if (!edit)
+    return (
+      <>
+        {badge ? <p className="mb-1 font-sans text-meta text-text-dim"><span className="mark mark-carry">{ru.check.compare.blockBadge(badge)}</span></p> : null}
+        <BlockText block={block} side="yours" marks={marks} />
+      </>
+    );
   if (edit.activeId === block.id) return <EditField number={number} edit={edit} />;
   return (
     <div

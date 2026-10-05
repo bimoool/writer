@@ -25,7 +25,7 @@ const FORMATS: ExportFormat[] = ['docx', 'md', 'txt'];
 /** Уже этой ширины колонки не помещаются, вместо них вкладки (SPEC §9). */
 const WIDE = '(min-width: 700px)';
 
-type Notice = 'copied' | 'copyFailed' | 'exportFailed' | null;
+type Notice = 'copied' | 'copyFailed' | 'exportFailed' | 'glvrdCopied' | 'glvrdFailed' | null;
 
 /** Копирование. Clipboard API есть только в защищённом контексте (https), на обычном http работает запасной путь. */
 async function copyText(text: string): Promise<boolean> {
@@ -83,7 +83,7 @@ export function Result() {
   const flash = (next: Notice) => {
     clearTimeout(timer.current);
     setNotice(next);
-    timer.current = setTimeout(() => setNotice(null), next === 'copied' ? 3000 : 6000);
+    timer.current = setTimeout(() => setNotice(null), next === 'copied' ? 3000 : next === 'glvrdCopied' ? 12000 : 6000);
   };
 
   const finished = !!doc && frontierIndex(doc) >= doc.blocks.length;
@@ -118,12 +118,18 @@ export function Result() {
     // Кнопка могла исчезнуть (подсветка выключена или слово заменено): тогда фокус на панель проверки.
     requestAnimationFrame(() => (back?.isConnected ? back : document.querySelector<HTMLElement>('[data-check-panel]'))?.focus());
   };
-  const allFindings = [...check.findings.read, ...check.findings.ai];
+  const allFindings = [...check.findings.read, ...check.findings.ai, ...check.findings.cmp];
   const active = check.activeId ? allFindings.find((f) => f.id === check.activeId) : undefined;
   const view = { ...check, open: openFinding };
   const marks: Marks | undefined =
     check.started && check.highlight && check.ct && !edit.on
-      ? { kind: check.tab, parts: check.ct.parts, findings: check.findings[check.tab], activeId: check.activeId, open: openFinding }
+      ? {
+          parts: check.ct.parts,
+          findings: check.findings[check.tab],
+          activeId: check.activeId,
+          badges: check.tab === 'cmp' && check.compare ? new Map(check.compare.topBlocks.map((b) => [b.blockId, b.count])) : undefined,
+          open: openFinding,
+        }
       : undefined;
 
   const metrics = useMemo(() => (base ? computeMetrics(base.blocks, lang) : null), [base, lang]);
@@ -170,13 +176,22 @@ export function Result() {
     }
   };
 
+  // Мостик к Главреду: приложение само ничего не отправляет. Текст копируется в буфер, ссылка открывается обычным переходом.
+  const copyForGlvrd = async () => flash((await copyText(text)) ? 'glvrdCopied' : 'glvrdFailed');
+
   const share = async () => {
     if (ready && (await shareFile(ready)) === 'failed') flash('exportFailed');
   };
 
   const ownWords = toPercent(metrics.ownWords);
   const typed = toPercent(metrics.typedShare);
-  const notices = { copied: ru.result.copied, copyFailed: ru.result.copyFailed, exportFailed: ru.result.exportFailed };
+  const notices = {
+    copied: ru.result.copied,
+    copyFailed: ru.result.copyFailed,
+    exportFailed: ru.result.exportFailed,
+    glvrdCopied: ru.check.glvrd.copied,
+    glvrdFailed: ru.check.glvrd.copyFailed,
+  };
 
   return (
     <main className="mx-auto w-full max-w-[72rem] px-4 pb-20 pt-10">
@@ -263,7 +278,17 @@ export function Result() {
               {ru.result.share}
             </button>
           )}
+          <a
+            href="https://glvrd.ru"
+            target="_blank"
+            rel="noopener noreferrer"
+            className={`${secondary} inline-flex items-center`}
+            onClick={() => void copyForGlvrd()}
+          >
+            {ru.check.glvrd.open}
+          </a>
         </div>
+        <p className="mt-2 max-w-[32rem] text-meta text-text-dim">{ru.check.glvrd.note}</p>
         <p role="status" className="mt-1 min-h-5 text-meta text-text-dim">
           {notice ? notices[notice] : ''}
         </p>

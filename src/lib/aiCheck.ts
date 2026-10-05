@@ -1,4 +1,4 @@
-import { STRUCTURE_RULES, PHRASE_RULES, type PhraseRule } from './aiPatterns';
+import { JUNK_RULES, PHRASE_RULES, STRUCTURE_RULES, type PhraseRule } from './aiPatterns';
 import type { CheckText, Range } from './checkText';
 
 /** Поиск по правилам из aiPatterns.ts (SPEC §15.3). Результат — подсказки, а не оценка текста. */
@@ -6,8 +6,12 @@ import type { CheckText, Range } from './checkText';
 export interface PatternFinding extends Range {
   ruleId: string;
   hint: string;
+  category: 'cliche' | 'junk';
+  /** Для словесного мусора: группа (ключ JUNK_GROUPS) и совет, чем заменить. */
+  group?: string;
+  advice?: string;
   /** Для структурных правил: числа для пояснения (например, «5 тире на 9 предложений»). */
-  detail?: { dashes?: number; sentences?: number; run?: number };
+  detail?: { dashes?: number; sentences?: number };
 }
 
 /** ё → е той же длины, чтобы смещения совпали с исходным текстом. */
@@ -29,13 +33,15 @@ function phraseFindings(ct: CheckText, rules: PhraseRule[]): PatternFinding[] {
   const folded = fold(ct.text);
   const out: PatternFinding[] = [];
   for (const rule of rules) {
+    const found: PatternFinding[] = [];
     for (const m of folded.matchAll(compile(rule))) {
       const start = m.index;
       const end = start + m[0].length;
       if (end === start) continue;
       if (rule.paragraphStart && !ct.paragraphs.some((p) => p.kind !== 'heading' && p.start === start)) continue;
-      out.push({ ruleId: rule.id, hint: rule.hint, start, end });
+      found.push({ ruleId: rule.id, hint: rule.hint, category: rule.category ?? 'cliche', group: rule.group, advice: rule.advice, start, end });
     }
+    if (found.length >= (rule.minCount ?? 1)) out.push(...found);
   }
   return out;
 }
@@ -55,47 +61,11 @@ function dashFindings(ct: CheckText): PatternFinding[] {
   return dashes.map((start) => ({
     ruleId: rule.id,
     hint: rule.hint,
+    category: 'cliche' as const,
     start,
     end: start + 1,
     detail: { dashes: dashes.length, sentences: sentenceCount },
   }));
-}
-
-function evenLengthFindings(ct: CheckText): PatternFinding[] {
-  const rule = STRUCTURE_RULES.evenLength;
-  const out: PatternFinding[] = [];
-  for (const p of ct.paragraphs) {
-    if (p.kind === 'heading') continue;
-    const lengths = p.sentences.map((s) => ct.text.slice(s.start, s.end).match(/[\p{L}\p{N}]+(?:[-'’][\p{L}\p{N}]+)*/gu)?.length ?? 0);
-    let runStart = -1;
-    let runEnd = -1;
-    const flush = () => {
-      if (runStart < 0) return;
-      out.push({
-        ruleId: rule.id,
-        hint: rule.hint,
-        start: p.sentences[runStart]!.start,
-        end: p.sentences[runEnd]!.end,
-        detail: { run: runEnd - runStart + 1 },
-      });
-      runStart = -1;
-    };
-    for (let i = 0; i + rule.run <= lengths.length; i++) {
-      const w = lengths.slice(i, i + rule.run);
-      const max = Math.max(...w);
-      const even = Math.min(...w) >= rule.minWords && (max - Math.min(...w)) / max < rule.maxDiff;
-      if (even) {
-        if (runStart >= 0 && i <= runEnd) runEnd = i + rule.run - 1;
-        else {
-          flush();
-          runStart = i;
-          runEnd = i + rule.run - 1;
-        }
-      }
-    }
-    flush();
-  }
-  return out;
 }
 
 function enumerationFindings(ct: CheckText): PatternFinding[] {
@@ -110,14 +80,14 @@ function enumerationFindings(ct: CheckText): PatternFinding[] {
       return m ? { start: m.index, end: m.index + m[0].length } : null;
     });
     if (found.some((f) => !f) || !(found[0]!.start < found[1]!.start && found[1]!.start < found[2]!.start)) continue;
-    out.push({ ruleId: rule.id, hint: rule.hint, start: p.start + found[0]!.start, end: p.start + found[2]!.end });
+    out.push({ ruleId: rule.id, hint: rule.hint, category: 'cliche', start: p.start + found[0]!.start, end: p.start + found[2]!.end });
   }
   return out;
 }
 
 /** Все подсказки по тексту, по порядку появления. */
-export function findPatterns(ct: CheckText, rules: PhraseRule[] = PHRASE_RULES): PatternFinding[] {
-  return [...phraseFindings(ct, rules), ...dashFindings(ct), ...evenLengthFindings(ct), ...enumerationFindings(ct)].sort(
+export function findPatterns(ct: CheckText, rules: PhraseRule[] = [...PHRASE_RULES, ...JUNK_RULES]): PatternFinding[] {
+  return [...phraseFindings(ct, rules), ...dashFindings(ct), ...enumerationFindings(ct)].sort(
     (a, b) => a.start - b.start || a.end - b.end,
   );
 }

@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { ru } from '../../i18n/ru';
+import type { SourceSpot } from '../../lib/compare';
 import type { Finding } from '../../lib/findings';
 import type { TextCheck } from './useTextCheck';
 
@@ -13,17 +14,50 @@ export function FindingCard({ check, finding, onClose }: { check: TextCheck; fin
     ref.current?.focus();
   }, [finding.id]);
 
-  const title =
-    finding.kind === 'read'
-      ? finding.sub === 'long'
-        ? ru.check.read.longSentence(finding.words)
-        : ru.check.read.repeat(finding.word, finding.count, finding.span)
-      : finding.detail?.dashes
-        ? ru.check.patterns.dashes(finding.detail.dashes, finding.detail.sentences ?? 0)
-        : finding.detail?.run
-          ? ru.check.patterns.even(finding.detail.run)
-          : (check.ct?.text.slice(finding.start, finding.end) ?? '');
-  const body = finding.kind === 'ai' ? finding.hint : finding.kind === 'read' && finding.sub === 'repeat' ? ru.check.read.repeatHint : '';
+  const quote = check.ct?.text.slice(finding.start, finding.end) ?? '';
+  let title = quote;
+  let body = '';
+  let extra: string | undefined;
+  let source: SourceSpot | undefined;
+  switch (finding.kind) {
+    case 'read':
+      title = finding.sub === 'long' ? ru.check.read.longSentence(finding.words) : ru.check.read.repeat(finding.word, finding.count, finding.span);
+      body = finding.sub === 'repeat' ? ru.check.read.repeatHint : '';
+      break;
+    case 'ai':
+      switch (finding.sub) {
+        case 'rule':
+          if (finding.detail?.dashes) title = ru.check.patterns.dashes(finding.detail.dashes, finding.detail.sentences ?? 0);
+          body = finding.hint;
+          extra = finding.advice ? ru.check.patterns.advice(finding.advice) : undefined;
+          break;
+        case 'rhythm':
+          title = ru.check.patterns.chain(finding.count, finding.words);
+          body = ru.check.patterns.chainHint;
+          break;
+        case 'start':
+          title = ru.check.patterns.opening(finding.key, finding.count, finding.scope);
+          body = ru.check.patterns.openingHint;
+          break;
+        case 'diversity':
+          title = ru.check.patterns.diversityWindow(Math.round(finding.ratio * 100), Math.round(finding.mean * 100));
+          body = ru.check.patterns.diversityHint;
+          extra = finding.top.length ? ru.check.patterns.diversityTop(finding.top) : undefined;
+          break;
+      }
+      break;
+    case 'cmp':
+      if (finding.sub === 'pattern') {
+        title = quote;
+        body = ru.check.compare.carriedLabel;
+        extra = finding.hint;
+      } else {
+        title = ru.check.compare.phraseWords(finding.words);
+        source = finding.source;
+      }
+      break;
+  }
+  const soft = finding.kind === 'ai' || (finding.kind === 'cmp' && finding.sub === 'pattern');
 
   return (
     <div
@@ -46,7 +80,18 @@ export function FindingCard({ check, finding, onClose }: { check: TextCheck; fin
         </button>
       </div>
       {body && <p className="mt-1 text-text-dim">{body}</p>}
-      {finding.kind === 'ai' && <p className="mt-2 text-meta text-text-dim">{ru.check.patterns.note}</p>}
+      {extra && <p className="mt-1 text-text-dim">{extra}</p>}
+      {source && (
+        <div className="mt-2">
+          <p className="text-meta text-text-dim">{ru.check.compare.sourceBlock}</p>
+          <p className="mt-0.5 font-serif text-text [overflow-wrap:anywhere]">
+            {source.text.slice(0, source.start)}
+            <span className="mark mark-read">{source.text.slice(source.start, source.end)}</span>
+            {source.text.slice(source.end)}
+          </p>
+        </div>
+      )}
+      {soft && <p className="mt-2 text-meta text-text-dim">{ru.check.patterns.note}</p>}
     </div>
   );
 }

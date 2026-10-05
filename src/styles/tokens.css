@@ -49,6 +49,7 @@
   --mark-carry: color-mix(in srgb, var(--danger) 26%, transparent);
   --mark-read: var(--marker-tint);
   --mark-ai: color-mix(in srgb, var(--ink) 24%, transparent);
+  --mark-junk: color-mix(in srgb, var(--text-dim) 30%, transparent);
   --radius-surface: 6px;
   --radius-mark: 3px;
   --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);

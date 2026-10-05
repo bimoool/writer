@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { findPatterns } from './aiCheck';
-import { PHRASE_RULES, type PhraseRule } from './aiPatterns';
+import { JUNK_GROUPS, JUNK_RULES, PHRASE_RULES, type PhraseRule } from './aiPatterns';
 import { buildCheckText } from './checkText';
 
 const check = (text: string) => buildCheckText(text.split('\n\n').map((t, i) => ({ id: `b${i}`, paragraphIndex: i, kind: 'text' as const, userText: t })));
@@ -79,29 +79,6 @@ describe('длинные тире', () => {
   });
 });
 
-describe('одинаковая длина соседних предложений', () => {
-  const s = (n: number) => `Слово${" слово".repeat(n - 1)}.`;
-  it('три подряд с разницей меньше 15%', () => {
-    expect(ids(`${s(10)} ${s(10)} ${s(11)}`)).toContain('even-length');
-  });
-  it('разница 15% и больше: нет', () => {
-    expect(ids(`${s(10)} ${s(10)} ${s(12)}`)).not.toContain('even-length');
-  });
-  it('два предложения мало', () => {
-    expect(ids(`${s(10)} ${s(10)}`)).not.toContain('even-length');
-  });
-  it('короткие предложения не в счёт', () => {
-    expect(ids('Да. Нет. Да. Нет.')).not.toContain('even-length');
-  });
-  it('длинная серия — одно место', () => {
-    const f = findPatterns(check(`${s(10)} ${s(10)} ${s(10)} ${s(10)}`)).filter((x) => x.ruleId === 'even-length');
-    expect(f).toHaveLength(1);
-  });
-  it('предложения из разных абзацев не склеиваются', () => {
-    expect(ids(`${s(10)} ${s(10)}\n\n${s(10)}`)).not.toContain('even-length');
-  });
-});
-
 describe('перечисление «во-первых, во-вторых, в-третьих»', () => {
   it('три пункта подряд', () => {
     expect(ids('Во-первых, сон. Во-вторых, еда. В-третьих, спорт.')).toContain('enumeration');
@@ -114,5 +91,59 @@ describe('перечисление «во-первых, во-вторых, в-т
   });
   it('пункты в разных абзацах: нет', () => {
     expect(ids('Во-первых, сон.\n\nВо-вторых, еда.\n\nВ-третьих, спорт.')).not.toContain('enumeration');
+  });
+});
+
+describe('словесный мусор', () => {
+  const junk = (text: string) => findPatterns(check(text)).filter((f) => f.category === 'junk');
+  const hit = (text: string, id: string) => junk(text).some((f) => f.ruleId === id);
+
+  const positive: Array<[string, string]> = [
+    ['junk-in-essence', 'По сути, это обычная задача.'],
+    ['junk-no-doubt', 'Безусловно, он прав.'],
+    ['junk-as-a-rule', 'Как правило, всё проходит гладко.'],
+    ['junk-so-to-say', 'Он, так сказать, герой.'],
+    ['junk-carry-out', 'Мы осуществляем контроль.'],
+    ['junk-within', 'Работа идёт в рамках проекта.'],
+    ['junk-because', 'Мы ушли, в связи с тем, что стемнело.'],
+    ['junk-takes-place', 'Такое имеет место.'],
+    ['junk-given', 'На данный момент всё тихо.'],
+    ['junk-noun-chain', 'Нужно проведение анализа.'],
+    ['junk-noun-chain', 'Здесь важно осуществление контроля.'],
+  ];
+  for (const [id, text] of positive) it(`находит ${id}: «${text}»`, () => expect(hit(text, id)).toBe(true));
+
+  const negative: Array<[string, string]> = [
+    ['junk-in-essence', 'Суть дела проста.'],
+    ['junk-carry-out', 'Он осуществил мечту? Нет: он сдался.'.replace('осуществил', 'сделал')],
+    ['junk-within', 'В рамке висит картина.'],
+    ['junk-noun-chain', 'Проведение выходных у моря.'],
+    ['junk-given', 'Данные получены сейчас.'],
+  ];
+  for (const [id, text] of negative) it(`не находит ${id}: «${text}»`, () => expect(hit(text, id)).toBe(false));
+
+  it('слабое правило срабатывает только от minCount совпадений', () => {
+    expect(hit('Это действительно так. И это действительно важно.', 'junk-really')).toBe(false);
+    expect(hit('Это действительно так. Это действительно важно. Это действительно нужно.', 'junk-really')).toBe(true);
+  });
+  it('усилители: от трёх', () => {
+    expect(hit('Очень хорошо и крайне мило.', 'junk-amplifiers')).toBe(false);
+    expect(hit('Очень хорошо, крайне мило и весьма разумно.', 'junk-amplifiers')).toBe(true);
+  });
+  it('«является» и «данный»: один раз нормально, дважды подсказка', () => {
+    expect(hit('Москва является столицей.', 'junk-is')).toBe(false);
+    expect(hit('Москва является столицей. Это является фактом.', 'junk-is')).toBe(true);
+  });
+  it('у каждого правила мусора есть группа и совет', () => {
+    for (const r of JUNK_RULES) {
+      expect(r.category).toBe('junk');
+      expect(r.advice && r.advice.length > 5).toBe(true);
+      expect(Object.keys(JUNK_GROUPS)).toContain(r.group);
+    }
+    expect(new Set([...PHRASE_RULES, ...JUNK_RULES].map((r) => r.id)).size).toBe(PHRASE_RULES.length + JUNK_RULES.length);
+  });
+  it('штампы и мусор не смешиваются', () => {
+    const found = findPatterns(check('Важно отметить, что по сути всё просто.'));
+    expect(found.map((f) => [f.ruleId, f.category])).toEqual([['important-note', 'cliche'], ['junk-in-essence', 'junk']]);
   });
 });

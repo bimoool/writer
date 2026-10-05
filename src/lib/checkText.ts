@@ -69,5 +69,9 @@ export function buildCheckText(blocks: CheckBlock[]): CheckText {
   };
 }
 
+/** Текст исходника в том же виде, чтобы сравнивать с текстом пользователя. */
+export const buildSourceCheckText = (blocks: Array<CheckBlock & { sourceText: string }>): CheckText =>
+  buildCheckText(blocks.map((b) => ({ ...b, userText: b.sourceText })));
+
 /** Часть, в которую попадает позиция (конец куска не включается). */
 export const partAt = (parts: CheckPart[], pos: number): CheckPart | undefined => parts.find((p) => pos >= p.start && pos < p.end);

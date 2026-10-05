@@ -21,6 +21,7 @@
   --color-ink-hover: var(--ink-hover);
   --color-danger: var(--danger);
   --color-mark-carry: var(--mark-carry);
+  --color-mark-junk: var(--mark-junk);
   --color-mark-read: var(--mark-read);
   --color-mark-ai: var(--mark-ai);
   --color-transparent: transparent;
@@ -159,6 +160,10 @@
   .mark-read {
     background: var(--mark-read);
     text-decoration: underline solid var(--marker);
+  }
+  .mark-junk {
+    background: var(--mark-junk);
+    text-decoration: underline dotted var(--text-dim);
   }
   .mark-ai {
     background: var(--mark-ai);

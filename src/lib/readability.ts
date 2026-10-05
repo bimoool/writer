@@ -1,7 +1,7 @@
 import type { CheckText, Range } from './checkText';
 import { stem } from './stem';
 import { isStopword } from './stopwords';
-import { detectLang, tokenize } from './tokens';
+import { collectUnits, lettersOf, type Word } from './textUnits';
 
 /** Читаемость (SPEC §15.2): индекс Флеша в адаптации Оборневой, длинные предложения, длинные слова, повторы. */
 
@@ -52,40 +52,11 @@ export interface Readability {
   repeats: RepeatGroup[];
 }
 
-interface Word extends Range {
-  text: string;
-  sentence: number;
-}
-
-const hasLetter = (s: string) => /\p{L}/u.test(s);
-
-/** Слова предложений (без чисел, ссылок и прочего без букв). Заголовки в подсчёт не входят: у них нет предложений. */
-function collectWords(ct: CheckText, lang: 'ru' | 'en'): { words: Word[]; sentenceWords: number[]; sentenceRanges: Range[] } {
-  const words: Word[] = [];
-  const sentenceWords: number[] = [];
-  const sentenceRanges: Range[] = [];
-  for (const p of ct.paragraphs) {
-    if (p.kind === 'heading') continue;
-    for (const s of p.sentences) {
-      const index = sentenceRanges.length;
-      let n = 0;
-      for (const t of tokenize(ct.text.slice(s.start, s.end), lang)) {
-        if (!hasLetter(t.text) || /\d/.test(t.text) || /[:/@]/.test(t.text)) continue;
-        words.push({ text: t.text, start: t.start + s.start, end: t.end + s.start, sentence: index });
-        n++;
-      }
-      sentenceWords.push(n);
-      sentenceRanges.push(s);
-    }
-  }
-  return { words, sentenceWords, sentenceRanges };
-}
-
 /** Повторы значимых слов: три и более раза в пределах пяти предложений. Слова сравниваются по основе. */
 export function findRepeats(words: Word[]): RepeatGroup[] {
   const byStem = new Map<string, Word[]>();
   for (const w of words) {
-    const letters = w.text.replace(/[^\p{L}]/gu, '');
+    const letters = lettersOf(w.text);
     if (letters.length < REPEAT_MIN_LETTERS || isStopword(w.text)) continue;
     const key = stem(w.text);
     (byStem.get(key) ?? byStem.set(key, []).get(key)!).push(w);
@@ -112,18 +83,16 @@ export function findRepeats(words: Word[]): RepeatGroup[] {
 }
 
 export function analyzeReadability(ct: CheckText): Readability {
-  const lang = detectLang(ct.text);
-  const { words, sentenceWords, sentenceRanges } = collectWords(ct, lang);
-  const sentenceCount = sentenceWords.filter((n) => n > 0).length;
+  const { words, sentences } = collectUnits(ct);
+  const sentenceCount = sentences.length;
   const syllables = words.reduce((sum, w) => sum + countSyllables(w.text), 0);
   const wordsPerSentence = sentenceCount ? words.length / sentenceCount : 0;
   const syllablesPerWord = words.length ? syllables / words.length : 0;
   const score = words.length && sentenceCount ? fleschOborneva(wordsPerSentence, syllablesPerWord) : null;
-  const longWords = words.filter((w) => w.text.replace(/[^\p{L}]/gu, '').length > LONG_WORD_LETTERS).length;
-  const longSentences: LongSentence[] = [];
-  sentenceWords.forEach((n, i) => {
-    if (n > LONG_SENTENCE_WORDS) longSentences.push({ ...sentenceRanges[i]!, words: n });
-  });
+  const longWords = words.filter((w) => lettersOf(w.text).length > LONG_WORD_LETTERS).length;
+  const longSentences: LongSentence[] = sentences
+    .filter((s) => s.words > LONG_SENTENCE_WORDS)
+    .map((s) => ({ start: s.start, end: s.end, words: s.words }));
   return {
     words: words.length,
     sentences: sentenceCount,

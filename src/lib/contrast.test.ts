@@ -55,7 +55,7 @@ describe('токены тем: акценты и маркер (WCAG AA)', () => 
       expect(contrastRatio(t()['--danger']!, t()['--bg']!)).toBeGreaterThanOrEqual(4.5);
       expect(contrastRatio(t()['--danger']!, t()['--surface']!)).toBeGreaterThanOrEqual(4.5);
     });
-    for (const [name, token, alpha] of [['переноса из исходника', '--danger', 0.26], ['шаблонов', '--ink', 0.24]] as const) {
+    for (const [name, token, alpha] of [['переноса из исходника', '--danger', 0.26], ['шаблонов', '--ink', 0.24], ['мусора', '--text-dim', 0.3]] as const) {
       it(`${theme}: --text поверх подсветки ${name} не ниже 4.5:1`, () => {
         for (const bg of ['--bg', '--surface']) {
           expect(contrastRatio(t()['--text']!, blend(t()[token]!, t()[bg]!, alpha))).toBeGreaterThanOrEqual(4.5);
