@@ -59,7 +59,19 @@ const wordsOf = (ct: CheckText): W[] =>
     .filter((t) => /\p{L}/u.test(t.text) && !/\d/.test(t.text))
     .map((t) => ({ stem: stem(t.text), stop: isStopword(t.text), start: t.start, end: t.end }));
 
-const partOf = (parts: CheckPart[], pos: number) => parts.find((p) => pos >= p.start && pos < p.end);
+/** Часть, в которую попадает позиция: двоичный поиск, части отсортированы. */
+function partOf(parts: CheckPart[], pos: number): CheckPart | undefined {
+  let lo = 0;
+  let hi = parts.length - 1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    const p = parts[mid]!;
+    if (pos < p.start) hi = mid - 1;
+    else if (pos >= p.end) lo = mid + 1;
+    else return p;
+  }
+  return undefined;
+}
 
 /** Общие подряд идущие n слов (по основам) у исходника и у пользователя: максимальные отрезки, без отрезков из одних стоп-слов. */
 export function carriedPhrases(source: CheckText, user: CheckText, minWords = CARRY_WORDS): CarriedPhrase[] {

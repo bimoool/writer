@@ -24,6 +24,8 @@ export interface EditApi {
 export interface Marks {
   parts: CheckPart[];
   findings: Finding[];
+  /** Те же находки, разложенные по блокам (bucketFindings). */
+  byBlock: Map<string, Finding[]>;
   activeId: string | null;
   /** Блоки с наибольшим числом перенесённых из исходника фраз: id блока → число (вкладка «Сравнение»). */
   badges?: Map<string, number>;
@@ -35,8 +37,9 @@ export function BlockText({ block, side, marks }: { block: Block; side: Side; ma
   const text = (side === 'source' ? block.sourceText : block.userText).trim();
   const kind = block.kind === 'heading' ? 'font-semibold' : block.kind === 'list-item' ? 'list-bullet' : '';
   const part = side === 'yours' && marks ? marks.parts.find((p) => p.blockId === block.id) : undefined;
-  const segments = part && marks ? markSegments(part, marks.findings) : [];
-  const byId = new Map(marks?.findings.map((f) => [f.id, f]));
+  const own = (marks?.byBlock.get(block.id)) ?? [];
+  const segments = part ? markSegments(part, own) : [];
+  const byId = new Map(own.map((f) => [f.id, f]));
   let content: ReactNode = text || ru.result.none;
   if (segments.length) {
     const nodes: ReactNode[] = [];

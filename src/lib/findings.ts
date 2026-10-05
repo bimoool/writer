@@ -85,6 +85,28 @@ export function compareFindings(c: CompareResult): Finding[] {
   return out.sort((x, y) => x.start - y.start);
 }
 
+/** Находки по блокам: каждая находка попадает в блоки, которые она пересекает. Части отсортированы и не пересекаются. */
+export function bucketFindings(parts: CheckPart[], findings: Finding[]): Map<string, Finding[]> {
+  const out = new Map<string, Finding[]>();
+  for (const f of findings) {
+    // Первая часть, конец которой правее начала находки.
+    let lo = 0;
+    let hi = parts.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (parts[mid]!.end <= f.start) lo = mid + 1;
+      else hi = mid;
+    }
+    for (let i = lo; i < parts.length && parts[i]!.start < f.end; i++) {
+      const id = parts[i]!.blockId;
+      const list = out.get(id);
+      if (list) list.push(f);
+      else out.set(id, [f]);
+    }
+  }
+  return out;
+}
+
 export interface MarkSegment extends Range {
   /** Находки, накрывающие отрезок: сначала самая узкая (самая конкретная). */
   ids: string[];

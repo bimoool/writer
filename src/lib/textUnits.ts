@@ -23,7 +23,18 @@ export interface Units {
 
 const hasLetter = (s: string) => /\p{L}/u.test(s);
 
+const cache = new WeakMap<CheckText, Units>();
+
+/** Разметка считается один раз на текст проверки: её используют читаемость, ритм, начала и разнообразие. */
 export function collectUnits(ct: CheckText): Units {
+  const hit = cache.get(ct);
+  if (hit) return hit;
+  const units = computeUnits(ct);
+  cache.set(ct, units);
+  return units;
+}
+
+function computeUnits(ct: CheckText): Units {
   const lang = detectLang(ct.text);
   const words: Word[] = [];
   const sentences: Sentence[] = [];

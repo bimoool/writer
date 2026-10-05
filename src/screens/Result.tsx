@@ -8,6 +8,7 @@ import { useResultEdit } from '../components/result/useResultEdit';
 import { useMediaQuery } from '../components/useMediaQuery';
 import { ru } from '../i18n/ru';
 import { computeMetrics, toPercent } from '../lib/metrics';
+import { bucketFindings } from '../lib/findings';
 import { frontierIndex } from '../lib/session';
 import { detectLang } from '../lib/tokens';
 import { assembleText, type ExportFormat } from '../lib/io/export';
@@ -121,11 +122,14 @@ export function Result() {
   const allFindings = [...check.findings.read, ...check.findings.ai, ...check.findings.cmp];
   const active = check.activeId ? allFindings.find((f) => f.id === check.activeId) : undefined;
   const view = { ...check, open: openFinding };
+  const shown = check.started && check.highlight && !edit.on ? check.findings[check.tab] : null;
+  const byBlock = useMemo(() => (shown && check.ct ? bucketFindings(check.ct.parts, shown) : null), [shown, check.ct]);
   const marks: Marks | undefined =
-    check.started && check.highlight && check.ct && !edit.on
+    shown && check.ct && byBlock
       ? {
           parts: check.ct.parts,
-          findings: check.findings[check.tab],
+          findings: shown,
+          byBlock,
           activeId: check.activeId,
           badges: check.tab === 'cmp' && check.compare ? new Map(check.compare.topBlocks.map((b) => [b.blockId, b.count])) : undefined,
           open: openFinding,

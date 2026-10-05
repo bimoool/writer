@@ -1,7 +1,7 @@
 import { OPENINGS } from './aiPatterns';
 import type { CheckText, Range } from './checkText';
 import { isBridge } from './stopwords';
-import { collectUnits } from './textUnits';
+import { collectUnits, type Word } from './textUnits';
 import { normalize, tokenize } from './tokens';
 
 /** Одинаковые начала предложений и абзацев (SPEC §15.3). */
@@ -14,20 +14,24 @@ export interface OpeningGroup {
   starts: Range[];
 }
 
+/** Начало из слов предложения: первые words слов после предлогов и союзов. null, если слов нет. */
+function openingOfWords(words: Word[], n = OPENINGS.startWords): { key: string; range: Range } | null {
+  const content: Word[] = [];
+  for (const w of words) {
+    if (content.length === 0 && isBridge(w.text)) continue;
+    content.push(w);
+    if (content.length === n) break;
+  }
+  if (content.length < n) return null;
+  return { key: content.map((w) => normalize(w.text)).join(' '), range: { start: content[0]!.start, end: content[content.length - 1]!.end } };
+}
+
 /** Начало текста: первые words слов после предлогов и союзов. null, если слов нет. */
 export function openingOf(text: string, offset: number, words = OPENINGS.startWords): { key: string; range: Range } | null {
-  const tokens = tokenize(text).filter((t) => /\p{L}/u.test(t.text) && !/\d/.test(t.text));
-  const content = [];
-  for (const t of tokens) {
-    if (content.length === 0 && isBridge(t.text)) continue;
-    content.push(t);
-    if (content.length === words) break;
-  }
-  if (content.length < words) return null;
-  return {
-    key: content.map((t) => normalize(t.text)).join(' '),
-    range: { start: offset + content[0]!.start, end: offset + content[content.length - 1]!.end },
-  };
+  const tokens = tokenize(text)
+    .filter((t) => /\p{L}/u.test(t.text) && !/\d/.test(t.text))
+    .map((t, i) => ({ text: t.text, start: offset + t.start, end: offset + t.end, sentence: i }));
+  return openingOfWords(tokens, words);
 }
 
 /** Серии подряд идущих элементов с одним ключом длиной от run. */
@@ -46,12 +50,19 @@ function runs<T extends { key: string | null }>(items: T[], run: number): T[][] 
 }
 
 export function findOpenings(ct: CheckText): OpeningGroup[] {
-  const { sentences } = collectUnits(ct);
+  const { sentences, words } = collectUnits(ct);
   const groups: OpeningGroup[] = [];
 
+  // Слова предложения: слова идут по порядку, поэтому у каждого предложения это непрерывный отрезок.
+  const firstWord: number[] = [];
+  words.forEach((w, i) => {
+    if (firstWord[w.sentence] === undefined) firstWord[w.sentence] = i;
+  });
+
   // Предложения подряд, внутри одного абзаца.
-  const items = sentences.map((s) => {
-    const o = openingOf(ct.text.slice(s.start, s.end), s.start);
+  const items = sentences.map((s, i) => {
+    const from = firstWord[i] ?? words.length;
+    const o = openingOfWords(words.slice(from, from + s.words));
     return { key: o?.key ?? null, range: o?.range ?? null, paragraph: s.paragraph };
   });
   const byParagraph = new Map<number, typeof items>();
@@ -61,12 +72,15 @@ export function findOpenings(ct: CheckText): OpeningGroup[] {
   }
 
   // Абзацы подряд. Заголовки и пункты списка не в счёт: списки по природе начинаются одинаково.
-  const paragraphs = ct.paragraphs
-    .filter((p) => p.kind === 'text')
-    .map((p) => {
-      const o = openingOf(ct.text.slice(p.start, p.end), p.start);
-      return { key: o?.key ?? null, range: o?.range ?? null };
-    });
+  const firstOfParagraph = new Map<number, (typeof items)[number]>();
+  items.forEach((it) => {
+    if (!firstOfParagraph.has(it.paragraph)) firstOfParagraph.set(it.paragraph, it);
+  });
+  const paragraphs = ct.paragraphs.flatMap((p, i) => {
+    if (p.kind !== 'text') return [];
+    const first = firstOfParagraph.get(i);
+    return [{ key: first?.key ?? null, range: first?.range ?? null }];
+  });
   for (const r of runs(paragraphs, OPENINGS.run)) groups.push({ key: r[0]!.key!, scope: 'paragraphs', starts: r.map((x) => x.range!) });
 
   return groups.sort((a, b) => a.starts[0]!.start - b.starts[0]!.start);
