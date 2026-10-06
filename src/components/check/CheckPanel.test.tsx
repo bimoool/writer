@@ -28,6 +28,7 @@ function checkOf(userTexts: string[], tab: FindingKind, source = SOURCE): TextCh
   return {
     started: true,
     start() {},
+    ready: true,
     ct,
     tab,
     setTab() {},

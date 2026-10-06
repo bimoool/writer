@@ -1,6 +1,8 @@
-import { findPatterns } from './aiCheck';
-import { buildSourceCheckText, type CheckPart, type Range } from './checkText';
+import { findPatternsSteps } from './aiCheck';
+import { buildSourceCheckTextSteps, type CheckPart, type Range } from './checkText';
 import { analyzeRhythm } from './rhythm';
+import { drain, runSliced, type Steps } from './slice';
+import { collectUnitsSteps } from './textUnits';
 
 /**
  * Шаблонные места исходника (SPEC §3.2, §15.7). Считается локально и один раз на документ, сразу при открытии Split:
@@ -27,9 +29,13 @@ interface SourceBlock {
   sourceText: string;
 }
 
-export function analyzeSourceTemplates(blocks: SourceBlock[]): SourceTemplates {
-  const ct = buildSourceCheckText(blocks.map((b) => ({ ...b, userText: '' })));
-  const spots: TemplateSpot[] = findPatterns(ct).map((f) => ({ kind: f.category, start: f.start, end: f.end }));
+export const analyzeSourceTemplates = (blocks: SourceBlock[]): SourceTemplates => drain(analyzeSourceTemplatesSteps(blocks));
+
+/** Расчёт порциями: сборка текста, разметка слов, правила по одному, ритм (SPEC §15.7). */
+export function* analyzeSourceTemplatesSteps(blocks: SourceBlock[]): Steps<SourceTemplates> {
+  const ct = yield* buildSourceCheckTextSteps(blocks.map((b) => ({ ...b, userText: '' })));
+  yield* collectUnitsSteps(ct);
+  const spots: TemplateSpot[] = (yield* findPatternsSteps(ct)).map((f) => ({ kind: f.category, start: f.start, end: f.end }));
   const rhythm = analyzeRhythm(ct);
   // Короткий текст ритм не оценивает (RHYTHM.minSentences): цепочки из него не считаем.
   if (rhythm.status !== 'tooShort') for (const c of rhythm.chains) spots.push({ kind: 'rhythm', start: c.start, end: c.end });
@@ -60,18 +66,56 @@ export function spotsByBlock(t: SourceTemplates, blocks: Array<{ id: string; sou
 
 const cache = new Map<string, { key: string; value: SourceTemplates }>();
 
-/**
- * Результат кэшируется в памяти по id документа. Исходник не меняется, но блоки можно пересобрать (смена размера),
- * поэтому в ключе подпись блоков: при той же разбивке повторных вычислений нет.
- */
-export function sourceTemplatesFor(docId: string, blocks: SourceBlock[]): SourceTemplates {
-  const key = blocks.map((b) => `${b.paragraphIndex}${b.kind}${b.sourceText}`).join('\u0001');
+const keyOf = (blocks: SourceBlock[]) => blocks.map((b) => `${b.paragraphIndex}${b.kind}${b.sourceText}`).join('\u0001');
+
+/** Исходник такого размера (знаков) считается сразу, без «считаем…»: на нём расчёт короче одной порции. */
+export const SYNC_SOURCE_CHARS = 30_000;
+
+/** Готовый результат из кэша или null. Ключом служит подпись блоков: смена размера блоков пересчитывает результат. */
+export function cachedSourceTemplates(docId: string, blocks: SourceBlock[]): SourceTemplates | null {
   const hit = cache.get(docId);
-  if (hit && hit.key === key) return hit.value;
-  const value = analyzeSourceTemplates(blocks);
+  return hit && hit.key === keyOf(blocks) ? hit.value : null;
+}
+
+const measured = <T>(f: () => T): T => {
+  const t0 = performance.now();
+  const value = f();
+  mark(t0);
+  return value;
+};
+
+/** Замер для e2e/perf-big.cjs: имя check:src-templates в Performance API (сумма времени порций, без пауз между ними). */
+function mark(start: number) {
+  try {
+    performance.measure('check:src-templates', { start, end: performance.now() });
+  } catch {
+    /* Performance API недоступен */
+  }
+}
+
+/** Результат сразу: из кэша или вычислением целиком. Для небольших исходников и тестов. */
+export function sourceTemplatesFor(docId: string, blocks: SourceBlock[]): SourceTemplates {
+  const hit = cachedSourceTemplates(docId, blocks);
+  if (hit) return hit;
+  const value = measured(() => analyzeSourceTemplates(blocks));
+  cache.set(docId, { key: keyOf(blocks), value });
+  return value;
+}
+
+/** Результат порциями, не блокируя интерфейс дольше одной порции. Отмена: signal. Результат попадает в тот же кэш. */
+export async function sourceTemplatesAsync(docId: string, blocks: SourceBlock[], signal?: AbortSignal): Promise<SourceTemplates> {
+  const hit = cachedSourceTemplates(docId, blocks);
+  if (hit) return hit;
+  const key = keyOf(blocks);
+  const t0 = performance.now();
+  const value = await runSliced(analyzeSourceTemplatesSteps(blocks), signal);
+  // Полное время от начала до конца вместе с паузами: в замере видно и сколько реально считали, и сколько ждали.
+  mark(t0);
   cache.set(docId, { key, value });
   return value;
 }
+
+export const sourceChars = (blocks: SourceBlock[]) => blocks.reduce((n, b) => n + b.sourceText.length, 0);
 
 export const forgetSourceTemplates = (docId: string) => void cache.delete(docId);
 

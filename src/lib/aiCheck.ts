@@ -1,5 +1,6 @@
 import { JUNK_RULES, PHRASE_RULES, STRUCTURE_RULES, type PhraseRule } from './aiPatterns';
 import type { CheckText, Range } from './checkText';
+import { drain, type Steps } from './slice';
 
 /** Поиск по правилам из aiPatterns.ts (SPEC §15.3). Результат — подсказки, а не оценка текста. */
 
@@ -36,7 +37,7 @@ function compile(rule: PhraseRule): RegExp {
   return new RegExp(rule.pattern.source, [...flags].join(''));
 }
 
-function phraseFindings(ct: CheckText, rules: PhraseRule[]): PatternFinding[] {
+function* phraseFindings(ct: CheckText, rules: PhraseRule[]): Steps<PatternFinding[]> {
   const folded = fold(ct.text);
   const out: PatternFinding[] = [];
   for (const rule of rules) {
@@ -49,6 +50,7 @@ function phraseFindings(ct: CheckText, rules: PhraseRule[]): PatternFinding[] {
       found.push({ ruleId: rule.id, hint: rule.hint, category: rule.category ?? 'cliche', group: rule.group, advice: rule.advice, start, end });
     }
     if (found.length >= (rule.minCount ?? 1)) out.push(...found);
+    yield;
   }
   return out;
 }
@@ -93,8 +95,14 @@ function enumerationFindings(ct: CheckText): PatternFinding[] {
 }
 
 /** Все подсказки по тексту, по порядку появления. */
-export function findPatterns(ct: CheckText, rules: PhraseRule[] = [...PHRASE_RULES, ...JUNK_RULES]): PatternFinding[] {
-  return [...phraseFindings(ct, rules), ...dashFindings(ct), ...enumerationFindings(ct)].sort(
-    (a, b) => a.start - b.start || a.end - b.end,
-  );
+export const findPatterns = (ct: CheckText, rules: PhraseRule[] = [...PHRASE_RULES, ...JUNK_RULES]): PatternFinding[] =>
+  drain(findPatternsSteps(ct, rules));
+
+/** То же порциями: управление отдаётся после каждого правила (SPEC §15.7). */
+export function* findPatternsSteps(ct: CheckText, rules: PhraseRule[] = [...PHRASE_RULES, ...JUNK_RULES]): Steps<PatternFinding[]> {
+  const phrases = yield* phraseFindings(ct, rules);
+  const dashes = dashFindings(ct);
+  yield;
+  const lists = enumerationFindings(ct);
+  return [...phrases, ...dashes, ...lists].sort((a, b) => a.start - b.start || a.end - b.end);
 }

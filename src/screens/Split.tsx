@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { BlockItem } from '../components/split/BlockItem';
+import { TemplatesBar } from '../components/split/TemplatesBar';
 import { SizeToggle } from '../components/split/SizeToggle';
 import { useSelectionCapture, type BlockSelection } from '../components/split/selection';
 import { ru } from '../i18n/ru';
 import { addKeyphrase, cutDocBlock, hasProgress, mergeDocBlocks, removeKeyphraseAt, resegmentDoc, setKeyphrases } from '../lib/blocks';
-import { sourceTemplatesFor, spotsByBlock } from '../lib/sourceTemplates';
+import type { TemplateSpot } from '../lib/sourceTemplates';
 import { detectLang } from '../lib/tokens';
 import type { BlockSize, Doc } from '../lib/types';
 import { changed, pushUndo, restoreSnapshot, snapshotOf, type Snapshot } from '../lib/undo';
@@ -42,10 +43,9 @@ export function Split() {
 
   const lang = useMemo(() => detectLang(doc?.source ?? ''), [doc?.source]);
   const editable = !!doc && !hasProgress(doc);
-  // Шаблоны исходника считаются сразу при открытии (локально, один раз на документ, см. SPEC §3.2); подсветка по переключателю.
-  const [showTemplates, setShowTemplates] = useState(false);
-  const templates = useMemo(() => (doc ? sourceTemplatesFor(doc.id, doc.blocks) : null), [doc]);
-  const templateSpots = useMemo(() => (templates && doc && showTemplates ? spotsByBlock(templates, doc.blocks) : null), [templates, doc, showTemplates]);
+  // Подсветка шаблонов исходника по переключателю в TemplatesBar. Состояние здесь только для передачи в блоки:
+  // сам расчёт живёт в TemplatesBar и список блоков при его завершении не перерисовывается.
+  const [templateSpots, setTemplateSpots] = useState<Map<string, TemplateSpot[]> | null>(null);
 
   useEffect(() => {
     if (!doc) useApp.getState().go('home');
@@ -233,30 +233,7 @@ export function Split() {
 
         <p className="mt-4 text-meta text-text-dim">{editable ? ru.split.hint : ru.split.locked}</p>
 
-        {templates && (
-          <div aria-label={ru.split.templates.label} role="group" className="mt-2 flex flex-wrap items-baseline gap-x-4 gap-y-1 text-meta text-text-dim">
-            {templates.counts.total === 0 ? (
-              <p role="status">{ru.split.templates.none}</p>
-            ) : (
-              <>
-                <p role="status">
-                  {ru.split.templates.found(templates.counts.total)} (
-                  <span className="tpl-cliche">{ru.split.templates.cliche}</span> {templates.counts.cliche},{' '}
-                  <span className="tpl-junk">{ru.split.templates.junk}</span> {templates.counts.junk},{' '}
-                  <span className="tpl-rhythm">{ru.split.templates.rhythm}</span> {templates.counts.rhythm})
-                </p>
-                <button
-                  type="button"
-                  aria-pressed={showTemplates}
-                  onClick={() => setShowTemplates(!showTemplates)}
-                  className={`min-h-10 rounded-surface px-2 text-meta transition-colors duration-[120ms] hover:text-text ${showTemplates ? 'bg-surface text-text' : ''}`}
-                >
-                  {ru.split.templates.toggle}
-                </button>
-              </>
-            )}
-          </div>
-        )}
+        {doc && <TemplatesBar docId={doc.id} blocks={doc.blocks} onShow={setTemplateSpots} />}
 
         <ol className="mt-2 list-none">
           {doc.blocks.map((block, i) => (

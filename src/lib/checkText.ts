@@ -1,4 +1,5 @@
 import { sentences } from './segment';
+import { drain, type Steps } from './slice';
 import { detectLang } from './tokens';
 import type { BlockKind } from './types';
 
@@ -37,7 +38,10 @@ interface CheckBlock {
   userText: string;
 }
 
-export function buildCheckText(blocks: CheckBlock[]): CheckText {
+export const buildCheckText = (blocks: CheckBlock[]): CheckText => drain(buildCheckTextSteps(blocks));
+
+/** Та же сборка порциями: отдаёт управление после каждого абзаца (деление на предложения самая дорогая часть). */
+export function* buildCheckTextSteps(blocks: CheckBlock[]): Steps<CheckText> {
   let text = '';
   const parts: CheckPart[] = [];
   const paragraphs: Array<Range & { kind: BlockKind }> = [];
@@ -59,19 +63,23 @@ export function buildCheckText(blocks: CheckBlock[]): CheckText {
     lastIndex = b.paragraphIndex;
   }
   const lang = detectLang(text);
-  return {
-    text,
-    parts,
-    paragraphs: paragraphs.map((p) => ({
+  const done: CheckParagraph[] = [];
+  for (const p of paragraphs) {
+    done.push({
       ...p,
       sentences: sentences(text.slice(p.start, p.end), lang).map((s) => ({ start: s.start + p.start, end: s.end + p.start })),
-    })),
-  };
+    });
+    yield;
+  }
+  return { text, parts, paragraphs: done };
 }
 
 /** Текст исходника в том же виде, чтобы сравнивать с текстом пользователя. */
 export const buildSourceCheckText = (blocks: Array<CheckBlock & { sourceText: string }>): CheckText =>
   buildCheckText(blocks.map((b) => ({ ...b, userText: b.sourceText })));
+
+export const buildSourceCheckTextSteps = (blocks: Array<CheckBlock & { sourceText: string }>): Steps<CheckText> =>
+  buildCheckTextSteps(blocks.map((b) => ({ ...b, userText: b.sourceText })));
 
 /** Часть, в которую попадает позиция (конец куска не включается). */
 export const partAt = (parts: CheckPart[], pos: number): CheckPart | undefined => parts.find((p) => pos >= p.start && pos < p.end);

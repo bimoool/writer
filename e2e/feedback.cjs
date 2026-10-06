@@ -42,6 +42,7 @@ async function journey() {
   const toggle = summary.getByRole('button', { name: 'Показать в тексте' });
   r.ok((await toggle.getAttribute('aria-pressed')) === 'false' && await page.locator('[class*="tpl-"]').evaluateAll((e) => e.filter((x) => x.closest('[data-block-text]')).length) === 0, 'Split: подсветка по умолчанию выключена');
   await toggle.click();
+  await page.waitForSelector('[data-block-text] [class*="tpl-"]');
   const underlined = await page.locator('[data-block-text] [class*="tpl-"]').count();
   r.ok(underlined > 0 && (await toggle.getAttribute('aria-pressed')) === 'true', `Split: переключатель включает подчёркивание (${underlined} мест)`);
   const styles = await page.locator('[data-block-text] [class*="tpl-"]').first().evaluate((e) => { const c = getComputedStyle(e); return { style: c.textDecorationStyle, bg: c.backgroundColor }; });
@@ -51,6 +52,7 @@ async function journey() {
   r.ok(overflow[0] <= overflow[1], `Split на 360 px: нет горизонтальной прокрутки (${overflow})`);
   await page.screenshot({ path: `${OUT}/split-360.png` });
   await toggle.click();
+  await page.waitForSelector('[data-block-text] [class*="tpl-"]', { state: 'detached' });
   r.ok(await page.locator('[data-block-text] [class*="tpl-"]').count() === 0, 'повторное нажатие выключает подсветку');
 
   // Home с документом: «Как это работает» свёрнут в ссылку.

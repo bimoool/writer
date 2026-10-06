@@ -344,7 +344,13 @@ export function CheckPanel({ check }: { check: TextCheck }) {
           {check.highlight ? ru.check.highlightOff : ru.check.highlightOn}
         </button>
       </div>
-      <Summary check={check} />
+      {check.ready ? (
+        <Summary check={check} />
+      ) : (
+        <p role="status" className="mt-3 text-ui text-text-dim">
+          {ru.check.counting}
+        </p>
+      )}
       <div role="tablist" aria-label={ru.check.tabs} className="-ml-2 mt-1 flex flex-wrap border-b border-line" onKeyDown={onKey}>
         {TABS.map((k) => {
           return (

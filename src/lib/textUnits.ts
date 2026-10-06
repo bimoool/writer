@@ -1,4 +1,5 @@
 import type { CheckText, Range } from './checkText';
+import { drain, type Steps } from './slice';
 import { detectLang, tokenize, type Lang } from './tokens';
 
 /** Общая разметка текста для проверок: слова и предложения без заголовков, чисел и ссылок. */
@@ -29,17 +30,26 @@ const cache = new WeakMap<CheckText, Units>();
 export function collectUnits(ct: CheckText): Units {
   const hit = cache.get(ct);
   if (hit) return hit;
-  const units = computeUnits(ct);
+  const units = drain(computeUnits(ct));
   cache.set(ct, units);
   return units;
 }
 
-function computeUnits(ct: CheckText): Units {
+/** Разметка порциями (после абзаца отдаёт управление) с записью в тот же кэш: collectUnits потом вернёт её сразу. */
+export function* collectUnitsSteps(ct: CheckText): Steps<Units> {
+  const hit = cache.get(ct);
+  if (hit) return hit;
+  const units = yield* computeUnits(ct);
+  cache.set(ct, units);
+  return units;
+}
+
+function* computeUnits(ct: CheckText): Steps<Units> {
   const lang = detectLang(ct.text);
   const words: Word[] = [];
   const sentences: Sentence[] = [];
-  ct.paragraphs.forEach((p, paragraph) => {
-    if (p.kind === 'heading') return;
+  for (const [paragraph, p] of ct.paragraphs.entries()) {
+    if (p.kind === 'heading') continue;
     for (const s of p.sentences) {
       const index = sentences.length;
       const first = words.length;
@@ -51,8 +61,11 @@ function computeUnits(ct: CheckText): Units {
       const n = words.length - first;
       if (n > 0) sentences.push({ start: s.start, end: s.end, paragraph, words: n });
       else words.length = first;
+      // Абзац без пустых строк может быть огромным: отдаём управление и внутри него.
+      if (sentences.length % 300 === 0) yield;
     }
-  });
+    yield;
+  }
   return { lang, words, sentences };
 }
 

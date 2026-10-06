@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { findPatterns } from '../../lib/aiCheck';
 import { buildCheckText, buildSourceCheckText, type CheckText } from '../../lib/checkText';
 import { compareTexts, type CompareResult } from '../../lib/compare';
@@ -20,6 +20,8 @@ import type { Doc } from '../../lib/types';
 export interface TextCheck {
   started: boolean;
   start(): void;
+  /** Все три вкладки посчитаны. Пока нет, панель показывает «Считаем…» (на больших текстах это секунды). */
+  ready: boolean;
   ct: CheckText | null;
   tab: FindingKind;
   setTab(tab: FindingKind): void;
@@ -54,13 +56,22 @@ function timed<T>(name: string, fn: () => T): T {
 
 /**
  * Состояние проверки текста на экране Result (SPEC §15). Пока не нажата «Проверить текст», ничего не считается.
- * Все три вкладки считаются один раз, сразу после нажатия: сводка в начале панели показывает итог по каждой. Проверка только читает документ.
+ * Все три вкладки считаются один раз, сразу после нажатия: сводка в начале панели показывает итог по каждой.
+ * Считаются по очереди, с паузой на отрисовку между этапами (читаемость, шаблоны, сравнение): на тексте в 30 000 слов
+ * это не даёт интерфейсу замереть на сумму всех трёх. Проверка только читает документ.
  */
 export function useTextCheck(doc: Doc | undefined): TextCheck {
   const [started, setStarted] = useState(false);
   const [tab, setTabState] = useState<FindingKind>('read');
   const [highlight, setHighlight] = useState(true);
   const [activeId, setActiveId] = useState<string | null>(null);
+  // Этап расчёта: 1 читаемость, 2 шаблоны, 3 сравнение. Следующий этап начинается после отрисовки предыдущего.
+  const [stage, setStage] = useState(0);
+  useEffect(() => {
+    if (!started || stage >= 3) return;
+    const timer = setTimeout(() => setStage(stage + 1), 0);
+    return () => clearTimeout(timer);
+  }, [started, stage]);
 
   const setTab = (t: FindingKind) => {
     setTabState(t);
@@ -70,12 +81,12 @@ export function useTextCheck(doc: Doc | undefined): TextCheck {
   const readability = useMemo(() => (ct ? timed('read', () => analyzeReadability(ct)) : null), [ct]);
   const patterns = useMemo<PatternsAnalysis | null>(
     () =>
-      ct
+      ct && stage >= 2
         ? timed('ai', () => ({ rules: findPatterns(ct), rhythm: analyzeRhythm(ct), openings: findOpenings(ct), diversity: analyzeDiversity(ct) }))
         : null,
-    [ct],
+    [ct, stage],
   );
-  const sourceCt = useMemo(() => (started && doc ? buildSourceCheckText(doc.blocks) : null), [started, doc]);
+  const sourceCt = useMemo(() => (started && doc && stage >= 3 ? buildSourceCheckText(doc.blocks) : null), [started, doc, stage]);
   const compare = useMemo(() => (ct && sourceCt ? timed('cmp', () => compareTexts(sourceCt, ct)) : null), [ct, sourceCt]);
   const stats = useMemo(() => {
     if (!ct) return null;
@@ -94,6 +105,7 @@ export function useTextCheck(doc: Doc | undefined): TextCheck {
   return {
     started,
     start: () => setStarted(true),
+    ready: stage >= 3,
     ct,
     tab,
     setTab,
