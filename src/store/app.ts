@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { createAutosaver, pickNewer, type Autosaver } from '../lib/autosave';
 import { DEFAULT_SETTINGS, cloneForRetry, createDoc, type CreateDocOptions } from '../lib/doc';
 import type { Doc, Settings } from '../lib/types';
+import { forgetSourceTemplates } from '../lib/sourceTemplates';
 import { classifyDbError, type DbErrorKind, type Repo } from './db';
 
 export type Screen = 'home' | 'split' | 'session' | 'result';
@@ -200,6 +201,7 @@ export const useApp = create<AppState>((set, get) => {
     async deleteDoc(id) {
       if (frozen) return;
       saver?.cancel(id);
+      forgetSourceTemplates(id);
       const wasCurrent = get().currentDocId === id;
       set({ docs: get().docs.filter((d) => d.id !== id), ...(wasCurrent ? { currentDocId: null, screen: 'home' } : {}) });
       if (wasCurrent) persistSession();

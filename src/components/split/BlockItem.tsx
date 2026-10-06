@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
 import { ru } from '../../i18n/ru';
 import { buildSegments, cutGaps, type Segment } from '../../lib/blocks';
+import { templatePieces, type TemplateSpot } from '../../lib/sourceTemplates';
 import type { Lang } from '../../lib/tokens';
 import type { Block, Keyphrase } from '../../lib/types';
 import { initialSel, moveForKey, moveSel, selAfter, selRange, wordSpans, type WordSel } from '../../lib/wordSelect';
@@ -21,6 +22,8 @@ interface Props {
   onCut: (offset: number) => void;
   /** Добавляет фразу, выбранную с клавиатуры. Пересечение сообщает сам экран, как при выделении мышью. */
   onAddPhrase: (range: Keyphrase) => 'ok' | 'overlap' | 'empty';
+  /** Шаблонные места исходника (в координатах sourceText) для подчёркивания. Пусто, пока переключатель выключен. */
+  templates?: TemplateSpot[];
 }
 
 /** Кусок текста, у которого есть признак «входит в клавиатурное выделение». */
@@ -52,7 +55,7 @@ const hasSelection = () => {
 };
 
 /** Блок разбивки: номер, текст с маркером, счётчик слов и действия. */
-export function BlockItem({ block, index, total, lang, editable, cutMode, notice, onRemovePhrase, onMerge, onToggleCut, onCut, onAddPhrase }: Props) {
+export function BlockItem({ block, index, total, lang, editable, cutMode, notice, onRemovePhrase, onMerge, onToggleCut, onCut, onAddPhrase, templates }: Props) {
   const item = useRef<HTMLLIElement>(null);
   const text = useRef<HTMLDivElement>(null);
   const keyboardFocus = useRef<number | null>(null);
@@ -90,6 +93,19 @@ export function BlockItem({ block, index, total, lang, editable, cutMode, notice
   const selecting = sel !== null && editable;
   const selRangeNow = selecting && spans[sel.to] ? selRange(spans, { from: Math.min(sel.from, spans.length - 1), to: sel.to }) : null;
   const pieces = useMemo(() => withSelection(selecting ? segments.map((g) => (g.kind === 'gap' ? { kind: 'text' as const, start: g.start, end: g.end } : g)) : segments, selRangeNow), [segments, selecting, selRangeNow]);
+
+  /**
+   * Кусок текста с подчёркиванием шаблонных мест. Каждый кусок в своём span с data-o: так выделение мышью
+   * (selection.ts) находит смещение и внутри подчёркнутого места. Подчёркивание только оформление.
+   */
+  const withTemplates = (start: number, end: number) =>
+    templates?.length
+      ? templatePieces(start, end, templates).map((p) => (
+          <span key={p.start} data-o={p.start} className={p.kind ? `tpl-${p.kind}` : undefined}>
+            {sourceText.slice(p.start, p.end)}
+          </span>
+        ))
+      : sourceText.slice(start, end);
 
   const toggleSelect = () => {
     if (selecting) {
@@ -182,7 +198,7 @@ export function BlockItem({ block, index, total, lang, editable, cutMode, notice
           const slice = sourceText.slice(seg.start, seg.end);
           const picked = 'selected' in seg && seg.selected ? 'word-select' : '';
           if (seg.kind === 'phrase') {
-            if (!editable) return <span key={seg.start} data-o={seg.start} className="marker" data-reveal={revealed ? 'in' : 'pending'}>{slice}</span>;
+            if (!editable) return <span key={seg.start} data-o={seg.start} className="marker" data-reveal={revealed ? 'in' : 'pending'}>{withTemplates(seg.start, seg.end)}</span>;
             return (
               <span
                 key={seg.start}
@@ -207,7 +223,7 @@ export function BlockItem({ block, index, total, lang, editable, cutMode, notice
                   removeByKeyboard(seg.index);
                 }}
               >
-                {slice}
+                {withTemplates(seg.start, seg.end)}
               </span>
             );
           }
@@ -226,13 +242,13 @@ export function BlockItem({ block, index, total, lang, editable, cutMode, notice
                   if (!hasSelection()) onCut(seg.end);
                 }}
               >
-                {slice}
+                {withTemplates(seg.start, seg.end)}
               </span>
             );
           }
           return (
             <span key={seg.start} data-o={seg.start} className={picked || undefined}>
-              {slice}
+              {withTemplates(seg.start, seg.end)}
             </span>
           );
         })}

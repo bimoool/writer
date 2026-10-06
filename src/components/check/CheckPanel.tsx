@@ -1,8 +1,11 @@
 import { useId, useRef, type KeyboardEvent, type ReactNode } from 'react';
 import { ru } from '../../i18n/ru';
-import { DIVERSITY, JUNK_GROUPS, RHYTHM } from '../../lib/aiPatterns';
+import { RULE_COUNTS } from '../../lib/aiCheck';
+import { DIVERSITY, JUNK_GROUPS, OPENINGS, RHYTHM } from '../../lib/aiPatterns';
 import { CARRY_WORDS } from '../../lib/compare';
+import { summarizeCheck } from '../../lib/checkSummary';
 import type { Finding, FindingKind } from '../../lib/findings';
+import { LONG_SENTENCE_WORDS, REPEAT_MIN, REPEAT_WINDOW } from '../../lib/readability';
 import type { TextCheck } from './useTextCheck';
 
 const quiet =
@@ -63,7 +66,7 @@ function ReadTab({ check }: { check: TextCheck }) {
   return (
     <div>
       {r.score === null || r.level === null ? (
-        <p className="text-ui text-text-dim">{ru.check.read.tooShort}</p>
+        <p className="text-ui text-text-dim">{ru.check.read.tooShort(r.words, r.sentences)}</p>
       ) : (
         <div>
           <p className="text-meta text-text-dim">{ru.check.read.levelLabel}</p>
@@ -82,13 +85,13 @@ function ReadTab({ check }: { check: TextCheck }) {
       </dl>
       <h3 className="mt-5 text-ui font-medium text-text">{ru.check.read.longSentences}</h3>
       {long.length === 0 ? (
-        <p className="mt-1 text-ui text-text-dim">{ru.check.read.longSentencesNone}</p>
+        <p className="mt-1 text-ui text-text-dim">{ru.check.read.longSentencesNone(r.sentences, LONG_SENTENCE_WORDS)}</p>
       ) : (
         <FindingList check={check} list={long} label={(f) => ({ title: excerpt(check.ct?.text ?? '', f), note: f.kind === 'read' && f.sub === 'long' ? ru.check.read.longSentence(f.words) : undefined })} />
       )}
       <h3 className="mt-5 text-ui font-medium text-text">{ru.check.read.repeats}</h3>
       {repeats.length === 0 ? (
-        <p className="mt-1 text-ui text-text-dim">{ru.check.read.repeatsNone}</p>
+        <p className="mt-1 text-ui text-text-dim">{ru.check.read.repeatsNone(r.words, REPEAT_MIN, REPEAT_WINDOW)}</p>
       ) : (
         <FindingList
           check={check}
@@ -97,6 +100,52 @@ function ReadTab({ check }: { check: TextCheck }) {
         />
       )}
     </div>
+  );
+}
+
+/** Три строки: что вышло по каждой вкладке, чтобы не открывать их по очереди. Строка переключает на свою вкладку. */
+function Summary({ check }: { check: TextCheck }) {
+  const { readability: r, patterns: a, compare: c, stats } = check;
+  if (!r || !a || !c || !stats) return null;
+  const sum = summarizeCheck(r, a, c, check.findings.ai);
+  const t = ru.check.summary;
+  const p = sum.patterns;
+  const patternParts = [
+    p.cliche && t.cliche(p.cliche),
+    p.junk && t.junk(p.junk),
+    p.rhythm && t.rhythm(p.rhythm),
+    p.openings && t.openings(p.openings),
+    p.diversity && t.diversity(p.diversity),
+  ].filter((x): x is string => !!x);
+  const readText = sum.read.level
+    ? t.readLevel(ru.check.read.level[sum.read.level], flat(sum.read.score))
+    : t.readNone(sum.read.words, sum.read.sentences);
+  const compareText =
+    sum.compare.status === 'noSource'
+      ? ru.check.compare.noSource
+      : sum.compare.status === 'noText'
+        ? ru.check.compare.noText
+        : sum.compare.phrases + sum.compare.patterns === 0
+          ? t.compareNone(stats.words)
+          : t.compareFound(sum.compare.phrases, sum.compare.patterns);
+  const rows: Array<{ tab: FindingKind; label: string; text: string }> = [
+    { tab: 'read', label: t.read, text: readText },
+    { tab: 'ai', label: t.patterns, text: p.total === 0 ? t.patternsNone(stats.words, stats.sentences, RULE_COUNTS.total) : t.patternsFound(p.total, patternParts) },
+    { tab: 'cmp', label: t.compare, text: compareText },
+  ];
+  return (
+    <dl aria-label={t.title} data-check-summary className="mt-3 flex flex-col gap-1 rounded-surface border border-line bg-surface px-3 py-2">
+      {rows.map((row) => (
+        <div key={row.tab} className="flex flex-wrap items-baseline gap-x-2">
+          <dt className="text-meta text-text-dim">{row.label}</dt>
+          <dd className="min-w-0 text-ui text-text [overflow-wrap:anywhere]">
+            <button type="button" aria-label={`${t.open}: ${row.label}. ${row.text}`} onClick={() => check.setTab(row.tab)} className="text-left underline-offset-4 hover:underline">
+              {row.text}
+            </button>
+          </dd>
+        </div>
+      ))}
+    </dl>
   );
 }
 
@@ -127,6 +176,7 @@ function PatternsTab({ check }: { check: TextCheck }) {
   for (const f of list) if (f.sub === 'start' && !groupFirst.has(`${f.scope}:${f.key}:${f.count}`)) groupFirst.set(`${f.scope}:${f.key}:${f.count}`, f);
   const openingGroups = [...groupFirst.values()];
   const stats = a.rhythm.stats;
+  const st = check.stats ?? { words: 0, sentences: 0, paragraphs: 0 };
   const junkGroups = [...new Set(junk.map((f) => (f.sub === 'rule' ? (f.group ?? '') : '')))];
 
   return (
@@ -135,7 +185,9 @@ function PatternsTab({ check }: { check: TextCheck }) {
 
       <Section title={ru.check.patterns.cliche}>
         <p role="status" className="mt-1 text-ui text-text">
-          {cliche.length === 0 ? ru.check.patterns.clicheNone : ru.check.patterns.found(cliche.length)}
+          {cliche.length === 0
+            ? ru.check.empty.checked(st.words, st.sentences, RULE_COUNTS.cliche, ru.check.empty.cliche)
+            : ru.check.patterns.found(cliche.length)}
         </p>
         <FindingList
           check={check}
@@ -150,7 +202,7 @@ function PatternsTab({ check }: { check: TextCheck }) {
 
       <Section title={ru.check.patterns.junk} note={ru.check.patterns.junkNote}>
         {junk.length === 0 ? (
-          <p className="mt-1 text-ui text-text-dim">{ru.check.patterns.junkNone}</p>
+          <p className="mt-1 text-ui text-text-dim">{ru.check.empty.checked(st.words, st.sentences, RULE_COUNTS.junk, ru.check.empty.junk)}</p>
         ) : (
           junkGroups.map((g) => (
             <div key={g} className="mt-2">
@@ -167,14 +219,14 @@ function PatternsTab({ check }: { check: TextCheck }) {
 
       <Section title={ru.check.patterns.rhythm}>
         {a.rhythm.status === 'tooShort' ? (
-          <p className="mt-1 text-ui text-text-dim">{ru.check.patterns.rhythmTooShort(RHYTHM.minSentences)}</p>
+          <p className="mt-1 text-ui text-text-dim">{ru.check.patterns.rhythmTooShort(RHYTHM.minSentences, a.rhythm.sentences)}</p>
         ) : (
           <>
             <p className="mt-1 font-serif text-h2 text-text">{a.rhythm.status === 'even' ? ru.check.patterns.rhythmEven : ru.check.patterns.rhythmLively}</p>
             <p className="max-w-[32rem] text-meta text-text-dim">{ru.check.patterns.rhythmStats(flat(stats.mean), flat(stats.sd), stats.cv.toFixed(2).replace('.', ','))}</p>
             <h4 className="mt-3 text-meta text-text-dim">{ru.check.patterns.chains}</h4>
             {chains.length === 0 ? (
-              <p className="text-ui text-text-dim">{ru.check.patterns.chainsNone}</p>
+              <p className="text-ui text-text-dim">{ru.check.patterns.chainsNone(a.rhythm.sentences, RHYTHM.run)}</p>
             ) : (
               <FindingList check={check} list={chains} label={(f) => ({ title: f.sub === 'rhythm' ? ru.check.patterns.chain(f.count, f.words) : '', note: excerpt(text, f) })} />
             )}
@@ -184,7 +236,7 @@ function PatternsTab({ check }: { check: TextCheck }) {
 
       <Section title={ru.check.patterns.openings}>
         {openingGroups.length === 0 ? (
-          <p className="mt-1 text-ui text-text-dim">{ru.check.patterns.openingsNone}</p>
+          <p className="mt-1 text-ui text-text-dim">{ru.check.patterns.openingsNone(st.sentences, st.paragraphs, OPENINGS.run)}</p>
         ) : (
           <FindingList check={check} list={openingGroups} label={(f) => ({ title: f.sub === 'start' ? ru.check.patterns.opening(f.key, f.count, f.scope) : '' })} />
         )}
@@ -198,7 +250,7 @@ function PatternsTab({ check }: { check: TextCheck }) {
             <p className="mt-1 text-ui tabular-nums text-text">{ru.check.patterns.diversityMean(pct(a.diversity.mean))}</p>
             <h4 className="mt-3 text-meta text-text-dim">{ru.check.patterns.diversityLow}</h4>
             {lowWindows.length === 0 ? (
-              <p className="text-ui text-text-dim">{ru.check.patterns.diversityNone}</p>
+              <p className="text-ui text-text-dim">{ru.check.patterns.diversityNone(a.diversity.significant, a.diversity.windows.length)}</p>
             ) : (
               <FindingList
                 check={check}
@@ -231,7 +283,7 @@ function CompareTab({ check }: { check: TextCheck }) {
       <Section title={ru.check.compare.phrases} note={ru.check.compare.phrasesNote(CARRY_WORDS)}>
         {phrases.length === 0 ? (
           <p role="status" className="mt-1 text-ui text-text">
-            {ru.check.compare.phrasesNone}
+            {ru.check.compare.phrasesNone(check.stats?.words ?? 0, CARRY_WORDS)}
           </p>
         ) : (
           <FindingList check={check} list={phrases} label={(f) => ({ title: excerpt(text, f), note: f.sub === 'phrase' ? ru.check.compare.phraseWords(f.words) : undefined })} />
@@ -241,7 +293,7 @@ function CompareTab({ check }: { check: TextCheck }) {
       <Section title={ru.check.compare.carried}>
         {carried.length === 0 ? (
           <p role="status" className="mt-1 text-ui text-text">
-            {ru.check.compare.carriedNone}
+            {ru.check.compare.carriedNone(check.source?.spots ?? 0)}
           </p>
         ) : (
           <FindingList check={check} list={carried} label={(f) => ({ title: excerpt(text, f), note: ru.check.compare.carriedLabel })} />
@@ -250,7 +302,7 @@ function CompareTab({ check }: { check: TextCheck }) {
 
       <Section title={ru.check.compare.gone} note={c.gonePatterns.length ? ru.check.compare.goneNote : undefined}>
         {c.gonePatterns.length === 0 ? (
-          <p className="mt-1 text-ui text-text-dim">{ru.check.compare.goneNone}</p>
+          <p className="mt-1 text-ui text-text-dim">{ru.check.compare.goneNone(check.source?.words ?? 0, RULE_COUNTS.total)}</p>
         ) : (
           <ul className="m-0 mt-2 flex list-none flex-col gap-1 p-0">
             {c.gonePatterns.map((g) => (
@@ -292,6 +344,7 @@ export function CheckPanel({ check }: { check: TextCheck }) {
           {check.highlight ? ru.check.highlightOff : ru.check.highlightOn}
         </button>
       </div>
+      <Summary check={check} />
       <div role="tablist" aria-label={ru.check.tabs} className="-ml-2 mt-1 flex flex-wrap border-b border-line" onKeyDown={onKey}>
         {TABS.map((k) => {
           return (

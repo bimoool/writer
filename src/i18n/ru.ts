@@ -69,6 +69,15 @@ export const ru = {
   split: {
     back: 'Назад',
     title: (n: number) => `Разбивка: ${n} ${plural(n, 'блок', 'блока', 'блоков')}`,
+    templates: {
+      label: 'Шаблоны исходника',
+      found: (n: number) => `В исходнике найдено ${n} ${plural(n, 'шаблонное место', 'шаблонных места', 'шаблонных мест')}`,
+      cliche: 'штампы',
+      junk: 'словесный мусор',
+      rhythm: 'ровный ритм',
+      none: 'Шаблонов из нашего списка в исходнике не нашлось',
+      toggle: 'Показать в тексте',
+    },
     hint: 'Выдели слова, которые станут опорой, или нажми на подсветку, чтобы убрать её',
     sizeLabel: 'Размер блоков',
     sizes: { short: 'Короткие', medium: 'Средние', long: 'Длинные' },
@@ -148,9 +157,12 @@ export const ru = {
     metrics: 'Итоги',
     ownWords: 'Свои слова',
     ownWordsNote: 'Насколько формулировки отличаются от исходника',
-    ownWordsTooShort: 'Написано слишком мало, чтобы сравнить',
+    ownWordsTooShort: (words: number) =>
+      words < 3 ? `Нужно хотя бы 3 слова, сейчас ${words}` : 'Нужно хотя бы 3 слова в одном блоке: считаем по тройкам слов подряд',
     typedShare: 'Набрано вручную',
-    typedShareNone: 'Ничего не набрано',
+    typedShareNone: 'Ничего не набрано и не вставлено, считать нечего',
+    hintsNone: 'не открывал',
+    peeksNone: 'не подглядывал',
     peeks: 'Подглядываний',
     words: 'Слов написано',
     time: 'Время',
@@ -204,7 +216,8 @@ export const ru = {
     read: {
       level: { easy: 'Легко читать', medium: 'Средне', hard: 'Тяжело' },
       levelLabel: 'Оценка',
-      tooShort: 'Текста слишком мало для оценки',
+      tooShort: (words: number, sentences: number) =>
+        `Оценки нет: в тексте ${words} ${plural(words, 'слово', 'слова', 'слов')} и ${sentences} ${plural(sentences, 'предложение', 'предложения', 'предложений')}, нужно хотя бы одно предложение`,
       score: (n: string) => `Индекс Флеша: ${n}`,
       scoreNote: 'Шкала: от 60 легко, от 30 средне, ниже 30 тяжело. Ориентир, а не оценка таланта.',
       words: 'Слов',
@@ -212,49 +225,83 @@ export const ru = {
       avgSentence: 'Слов в предложении',
       longWords: 'Слов длиннее 12 букв',
       longSentences: 'Стоит упростить',
-      longSentencesNone: 'Длинных предложений нет',
+      longSentencesNone: (sentences: number, limit: number) =>
+        `Проверено ${sentences} ${plural(sentences, 'предложение', 'предложения', 'предложений')}: длиннее ${limit} слов нет`,
       longSentence: (n: number) => `${n} ${plural(n, 'слово', 'слова', 'слов')} в предложении. Попробуй разбить на два или убрать лишнее.`,
       repeats: 'Повторы слов',
-      repeatsNone: 'Повторов нет',
+      repeatsNone: (words: number, min: number, window: number) =>
+        `Проверено ${words} ${plural(words, 'слово', 'слова', 'слов')}: ни одно значимое слово не встречается ${min} раза и больше в пределах ${window} предложений`,
       repeat: (word: string, count: number, span: number) =>
         `«${word}»: ${count} ${plural(count, 'раз', 'раза', 'раз')} за ${span} ${plural(span, 'предложение', 'предложения', 'предложений')}`,
       repeatHint: 'Слово часто повторяется рядом. Можно подобрать другое или убрать лишнее упоминание.',
     },
+    empty: {
+      checked: (words: number, sentences: number, rules: number, what: string) =>
+        `Проверено ${words} ${plural(words, 'слово', 'слова', 'слов')}, ${sentences} ${plural(sentences, 'предложение', 'предложения', 'предложений')}, правил ${rules}: ${what} не найдено`,
+      cliche: 'шаблонов',
+      junk: 'словесного мусора',
+    },
+    summary: {
+      title: 'Сводка',
+      read: 'Читаемость',
+      patterns: 'Шаблоны',
+      compare: 'Сравнение',
+      readLevel: (level: string, score: string) => `${level}, индекс Флеша ${score}`,
+      readNone: (words: number, sentences: number) =>
+        `оценки нет: в тексте ${words} ${plural(words, 'слово', 'слова', 'слов')} и ${sentences} ${plural(sentences, 'предложение', 'предложения', 'предложений')}`,
+      patternsFound: (n: number, parts: string[]) => `${n} ${plural(n, 'место', 'места', 'мест')} (${parts.join(', ')})`,
+      patternsNone: (words: number, sentences: number, rules: number) =>
+        `не найдено. Проверено ${words} ${plural(words, 'слово', 'слова', 'слов')}, ${sentences} ${plural(sentences, 'предложение', 'предложения', 'предложений')}, правил ${rules}`,
+      cliche: (n: number) => `штампы ${n}`,
+      junk: (n: number) => `словесный мусор ${n}`,
+      rhythm: (n: number) => `ровный ритм ${n}`,
+      openings: (n: number) => `одинаковые начала ${n}`,
+      diversity: (n: number) => `бедные участки ${n}`,
+      compareNone: (words: number) => `перенесённых фраз и шаблонов нет (проверено ${words} ${plural(words, 'слово', 'слова', 'слов')} твоего текста)`,
+      compareFound: (phrases: number, patterns: number) =>
+        `перенесённых фраз ${phrases}, перенесённых шаблонов ${patterns}`,
+      open: 'Открыть вкладку',
+    },
     patterns: {
       note: 'Это подсказки, а не приговор: такие обороты встречаются и в живых текстах. Решай сам, нужен ли оборот.',
       cliche: 'Шаблонные обороты',
-      clicheNone: 'Шаблонных оборотов не нашлось',
+
       found: (n: number) => `${n} ${plural(n, 'место', 'места', 'мест')}`,
       dashes: (dashes: number, sentences: number) =>
         `${dashes} ${plural(dashes, 'длинное тире', 'длинных тире', 'длинных тире')} на ${sentences} ${plural(sentences, 'предложение', 'предложения', 'предложений')}`,
       junk: 'Словесный мусор',
-      junkNone: 'Словесного мусора не нашлось',
+
       junkNote: 'Слова, которые часто можно убрать или заменить проще. Подсказка, а не запрет.',
       advice: (a: string) => `Чем заменить: ${a}`,
       rhythm: 'Ритм предложений',
-      rhythmTooShort: (n: number) => `Мало текста: ритм оцениваем от ${n} предложений`,
+      rhythmTooShort: (need: number, have: number) => `Нужно хотя бы ${need} предложений, сейчас ${have}`,
       rhythmEven: 'Ритм ровный',
       rhythmLively: 'Ритм живой',
       rhythmStats: (mean: string, sd: string, cv: string) => `В среднем ${mean} слов в предложении, разброс ${sd}, коэффициент вариации ${cv}`,
       chains: 'Цепочки предложений одной длины',
-      chainsNone: 'Цепочек предложений одной длины нет',
+      chainsNone: (sentences: number, run: number) =>
+        `Проверено ${sentences} ${plural(sentences, 'предложение', 'предложения', 'предложений')}: ${run} подряд почти одной длины нет`,
       chain: (n: number, words: number[]) =>
         `${n} ${plural(n, 'предложение', 'предложения', 'предложений')} подряд, ${
           words.length > 5 ? (Math.min(...words) === Math.max(...words) ? `по ${words[0]}` : `по ${Math.min(...words)}–${Math.max(...words)}`) : words.join(', ')
         } ${plural(words[words.length - 1] ?? 0, 'слово', 'слова', 'слов')}`,
       chainHint: 'Несколько предложений подряд почти одной длины. Живая речь обычно чередует короткие и длинные.',
       openings: 'Одинаковые начала',
-      openingsNone: 'Одинаковых начал нет',
+      openingsNone: (sentences: number, paragraphs: number, run: number) =>
+        `Проверено ${sentences} ${plural(sentences, 'предложение', 'предложения', 'предложений')} в ${paragraphs} ${plural(paragraphs, 'абзаце', 'абзацах', 'абзацах')}: ${run} подряд с одним началом нет`,
       opening: (key: string, count: number, scope: 'sentences' | 'paragraphs') =>
         scope === 'sentences'
           ? `«${key}»: ${count} ${plural(count, 'предложение', 'предложения', 'предложений')} подряд начинаются одинаково`
           : `«${key}»: ${count} ${plural(count, 'абзац', 'абзаца', 'абзацев')} подряд начинаются одинаково`,
       openingHint: 'Одинаковое начало подряд делает текст монотонным. Можно перестроить одно-два предложения.',
       diversity: 'Разнообразие слов',
-      diversityTooShort: (n: number, need: number) => `Мало данных: значимых слов ${n}, нужно хотя бы ${need}`,
+      diversityTooShort: (n: number, need: number) => `Нужно хотя бы ${need} значимых слов, сейчас ${n}`,
       diversityMean: (pct: number) => `Уникальных слов (по основам) в среднем ${pct}% от значимых`,
       diversityLow: 'Участки, где слова повторяются чаще',
-      diversityNone: 'Заметно бедных участков нет',
+      diversityNone: (significant: number, windows: number) =>
+        windows > 1
+          ? `Проверено ${significant} значимых слов в ${windows} ${plural(windows, 'участке', 'участках', 'участках')}: заметно бедных нет`
+          : `Весь текст один участок (${significant} значимых слов): сравнивать участки между собой не с чем`,
       diversityWindow: (pct: number, mean: number) => `Уникальных ${pct}% при среднем ${mean}%`,
       diversityTop: (list: Array<{ word: string; count: number }>) => `Чаще всего: ${list.map((t) => `«${t.word}» ×${t.count}`).join(', ')}`,
       diversityHint: 'Здесь слова повторяются чаще, чем в остальном тексте. Можно подобрать синонимы или перестроить фразу.',
@@ -264,14 +311,19 @@ export const ru = {
       noText: 'В твоём тексте нет слов, сравнивать не с чем.',
       note: 'Сравниваем твой текст с исходником. Это подсказки: совпадение может быть и случайным.',
       carried: 'Шаблоны, перешедшие из исходника',
-      carriedNone: 'Шаблонов из исходника в твоём тексте нет',
+      carriedNone: (sourceSpots: number) =>
+        sourceSpots === 0
+          ? 'В исходнике шаблонов не нашлось, переносить было нечего'
+          : `В исходнике шаблонных мест: ${sourceSpots}, ни одно не перешло в твой текст`,
       carriedLabel: 'Этот шаблон есть и в исходнике, возможно, он перенесён',
       gone: 'Шаблоны исходника, которых нет в твоём тексте',
-      goneNone: 'В исходнике шаблонов не нашлось',
+      goneNone: (words: number, rules: number) =>
+        `Проверено ${words} ${plural(words, 'слово', 'слова', 'слов')} исходника, правил ${rules}: шаблонов не найдено`,
       goneNote: 'Хороший знак: ты написал это по-своему.',
       goneItem: (example: string, count: number) => (count > 1 ? `«${example}» (${count})` : `«${example}»`),
       phrases: 'Перенесённые фразы',
-      phrasesNone: 'Дословно перенесённых фраз нет. Это хороший знак: ты пересказал, а не переписал.',
+      phrasesNone: (words: number, min: number) =>
+        `Проверено ${words} ${plural(words, 'слово', 'слова', 'слов')} твоего текста: ${min} слов подряд, как в исходнике, нет. Это хороший знак: ты пересказал, а не переписал.`,
       phrasesNote: (n: number) => `Четыре слова и больше подряд, одинаковые с исходником (без учёта регистра, ё и окончаний): от ${n} слов.`,
       phraseWords: (n: number) => `${n} ${plural(n, 'слово', 'слова', 'слов')} подряд как в исходнике`,
       sourceBlock: 'Так в исходнике',

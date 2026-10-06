@@ -217,13 +217,17 @@ export function Result() {
         <MainMetric
           label={ru.result.ownWords}
           value={ownWords === null ? ru.result.none : ru.result.percent(ownWords)}
-          note={ownWords === null ? ru.result.ownWordsTooShort : ru.result.ownWordsNote}
+          note={ownWords === null ? ru.result.ownWordsTooShort(metrics.wordsWritten) : ru.result.ownWordsNote}
         />
         <dl className="mt-5 flex flex-wrap gap-x-6 gap-y-2 border-t border-line pt-4">
           <Stat label={ru.result.time} value={ru.duration(metrics.activeMs)} />
           <Stat label={ru.result.words} value={String(metrics.wordsWritten)} />
-          <Stat label={ru.result.hintsLabel} value={ru.result.hintsValue(metrics.opens[1], metrics.opens[2], metrics.opens[3])} />
-          <Stat label={ru.result.peeks} value={String(metrics.peeks)} />
+          <Stat
+            label={ru.result.hintsLabel}
+            value={ru.result.hintsValue(metrics.opens[1], metrics.opens[2], metrics.opens[3])}
+            note={metrics.opens[1] + metrics.opens[2] + metrics.opens[3] === 0 ? ru.result.hintsNone : undefined}
+          />
+          <Stat label={ru.result.peeks} value={String(metrics.peeks)} note={metrics.peeks === 0 ? ru.result.peeksNone : undefined} />
           <Stat
             label={ru.result.typedShare}
             value={typed === null ? ru.result.none : ru.result.percent(typed)}

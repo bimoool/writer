@@ -14,6 +14,7 @@ import {
 import { findOpenings } from '../../lib/openings';
 import { analyzeReadability, type Readability } from '../../lib/readability';
 import { analyzeRhythm } from '../../lib/rhythm';
+import { collectUnits } from '../../lib/textUnits';
 import type { Doc } from '../../lib/types';
 
 export interface TextCheck {
@@ -27,6 +28,10 @@ export interface TextCheck {
   readability: Readability | null;
   patterns: PatternsAnalysis | null;
   compare: CompareResult | null;
+  /** Слова, предложения и абзацы проверяемого текста: для подписей к пустым результатам. */
+  stats: { words: number; sentences: number; paragraphs: number } | null;
+  /** Исходник: слов и шаблонных мест по правилам (для вкладки «Сравнение»). */
+  source: { words: number; spots: number } | null;
   findings: Record<FindingKind, Finding[]>;
   /** Открытая находка (карточка с пояснением). */
   activeId: string | null;
@@ -49,32 +54,37 @@ function timed<T>(name: string, fn: () => T): T {
 
 /**
  * Состояние проверки текста на экране Result (SPEC §15). Пока не нажата «Проверить текст», ничего не считается.
- * Каждая вкладка считается один раз, при первом открытии. Проверка только читает документ.
+ * Все три вкладки считаются один раз, сразу после нажатия: сводка в начале панели показывает итог по каждой. Проверка только читает документ.
  */
 export function useTextCheck(doc: Doc | undefined): TextCheck {
   const [started, setStarted] = useState(false);
   const [tab, setTabState] = useState<FindingKind>('read');
-  const [seen, setSeen] = useState<FindingKind[]>(['read']);
   const [highlight, setHighlight] = useState(true);
   const [activeId, setActiveId] = useState<string | null>(null);
 
   const setTab = (t: FindingKind) => {
     setTabState(t);
-    setSeen((s) => (s.includes(t) ? s : [...s, t]));
   };
 
   const ct = useMemo(() => (started && doc ? buildCheckText(doc.blocks) : null), [started, doc]);
-  const readability = useMemo(() => (ct && seen.includes('read') ? timed('read', () => analyzeReadability(ct)) : null), [ct, seen]);
+  const readability = useMemo(() => (ct ? timed('read', () => analyzeReadability(ct)) : null), [ct]);
   const patterns = useMemo<PatternsAnalysis | null>(
     () =>
-      ct && seen.includes('ai')
+      ct
         ? timed('ai', () => ({ rules: findPatterns(ct), rhythm: analyzeRhythm(ct), openings: findOpenings(ct), diversity: analyzeDiversity(ct) }))
         : null,
-    [ct, seen],
+    [ct],
   );
-  const compare = useMemo(
-    () => (ct && doc && seen.includes('cmp') ? timed('cmp', () => compareTexts(buildSourceCheckText(doc.blocks), ct)) : null),
-    [ct, doc, seen],
+  const sourceCt = useMemo(() => (started && doc ? buildSourceCheckText(doc.blocks) : null), [started, doc]);
+  const compare = useMemo(() => (ct && sourceCt ? timed('cmp', () => compareTexts(sourceCt, ct)) : null), [ct, sourceCt]);
+  const stats = useMemo(() => {
+    if (!ct) return null;
+    const u = collectUnits(ct);
+    return { words: u.words.length, sentences: u.sentences.length, paragraphs: new Set(u.sentences.map((x) => x.paragraph)).size };
+  }, [ct]);
+  const source = useMemo(
+    () => (sourceCt ? { words: collectUnits(sourceCt).words.length, spots: findPatterns(sourceCt).length } : null),
+    [sourceCt],
   );
   const findings = useMemo(
     () => (ct ? { read: readability ? readFindings(readability) : [], ai: patterns ? patternFindings(patterns) : [], cmp: compare ? compareFindings(compare) : [] } : EMPTY),
@@ -92,6 +102,8 @@ export function useTextCheck(doc: Doc | undefined): TextCheck {
     readability,
     patterns,
     compare,
+    stats,
+    source,
     findings,
     activeId,
     open: setActiveId,

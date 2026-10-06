@@ -186,6 +186,29 @@
     background: var(--mark-ai);
     text-decoration: underline dashed var(--ink);
   }
+  /* Шаблоны исходника на Split: только подчёркивание, без фона, чтобы не спорить с маркером ключевых фраз.
+     Три вида различаются типом линии: штампы пунктиром, словесный мусор точками, ровный ритм двойной линией. */
+  .tpl-cliche,
+  .tpl-junk,
+  .tpl-rhythm {
+    text-decoration-thickness: 1.5px;
+    text-underline-offset: 0.22em;
+  }
+  .tpl-cliche {
+    text-decoration-line: underline;
+    text-decoration-style: dashed;
+    text-decoration-color: var(--ink);
+  }
+  .tpl-junk {
+    text-decoration-line: underline;
+    text-decoration-style: dotted;
+    text-decoration-color: var(--text-dim);
+  }
+  .tpl-rhythm {
+    text-decoration-line: underline;
+    text-decoration-style: double;
+    text-decoration-color: var(--text-dim);
+  }
   /* Блок в режиме правки: нажимается целиком, фокус виден рамкой. */
   .edit-cell {
     margin: -4px -6px;

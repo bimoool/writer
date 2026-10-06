@@ -14,6 +14,13 @@ export interface PatternFinding extends Range {
   detail?: { dashes?: number; sentences?: number };
 }
 
+/** Сколько правил проверяет вкладка «Шаблоны»: для подписи «Проверено …, правил N». Структурные правила (тире, перечисление) тоже правила. */
+export const RULE_COUNTS = {
+  cliche: PHRASE_RULES.length + Object.keys(STRUCTURE_RULES).length,
+  junk: JUNK_RULES.length,
+  total: PHRASE_RULES.length + JUNK_RULES.length + Object.keys(STRUCTURE_RULES).length,
+};
+
 /** ё → е той же длины, чтобы смещения совпали с исходным текстом. */
 const fold = (s: string) => s.replace(/ё/g, 'е').replace(/Ё/g, 'Е');
 
