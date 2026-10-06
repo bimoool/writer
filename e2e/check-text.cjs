@@ -1,6 +1,6 @@
 /*
  * Проверка текста (SPEC §15) в Chromium: вкладки, подсветка, карточки, метрики и хранилище не меняются,
- * сеть перехвачена (кроме 127.0.0.1 всё блокируется), «Открыть в Главреде».
+ * сеть перехвачена (кроме 127.0.0.1 всё блокируется и считается провалом).
  * Запуск: npm run build && npx vite preview --port 4173 --host 127.0.0.1 &
  *         node e2e/check-text.cjs <папка для скриншотов> [адрес] [--shots]
  * С --shots снимает скриншоты каждой вкладки и режима правки в трёх темах на 360 и 1280 px.
@@ -19,7 +19,7 @@ const tabs = (page) => page.getByRole('tablist', { name: 'Виды провер�
 const tab = (page, name) => tabs(page).getByRole('tab', { name: new RegExp(`^${name}`) });
 
 async function scenario() {
-  const { browser, ctx, page, net, errors } = await launch();
+  const { browser, page, net, errors } = await launch();
   const doc = makeRichDoc();
   await seed(page, BASE, [doc], 'result', doc.id);
   await page.getByRole('heading', { name: 'Готово' }).waitFor();
@@ -106,32 +106,16 @@ async function scenario() {
   const overflow = await page.evaluate(() => [document.documentElement.scrollWidth, innerWidth]);
   r.ok(overflow[0] <= overflow[1], `на 360 px нет горизонтальной прокрутки (${overflow})`);
 
-  // Открыть в Главреде
-  const link = page.getByRole('link', { name: 'Открыть в Главреде' });
-  const attrs = await link.evaluate((a) => ({ href: a.href, target: a.target, rel: a.rel }));
-  r.log('ссылка Главреда:', JSON.stringify(attrs));
-  r.ok(attrs.href === 'https://glvrd.ru/' && attrs.target === '_blank' && /noopener/.test(attrs.rel) && /noreferrer/.test(attrs.rel), 'ссылка: https://glvrd.ru, _blank, rel=noopener noreferrer');
-  const mainRequestsBefore = net.urls.length;
-  const popupPromise = ctx.waitForEvent('page');
-  await link.click();
-  const popup = await popupPromise;
-  await popup.waitForLoadState('domcontentloaded').catch(() => {});
-  r.log('новая вкладка открыта на:', popup.url());
-  r.ok(/^https:\/\/glvrd\.ru\//.test(popup.url()) || popup.url() === 'about:blank' || popup.url().startsWith('chrome-error'), 'новая вкладка ведёт на glvrd.ru (сеть перехвачена, страница не грузится)');
-  const mainExternal = net.blocked.filter((u) => /glvrd/.test(u));
-  r.log('перехвачено в сети (навигация новой вкладки):', JSON.stringify(mainExternal));
-  await popup.close();
-  await page.waitForTimeout(300);
-  const status = await page.getByText(/Текст скопирован|Не получилось скопировать/).first().innerText();
-  r.ok(/glvrd\.ru/.test(status) && /наши данные туда не уходят/.test(status), 'пояснение после нажатия: «вставь на glvrd.ru, наши данные туда не уходят»');
-  const pageRequests = net.urls.slice(mainRequestsBefore).filter((u) => !u.startsWith(BASE));
-  r.ok(pageRequests.every((u) => /glvrd\.ru/.test(u)), 'других внешних запросов нет, только переход новой вкладки');
-  r.ok((await page.getByRole('button', { name: /Скрыть подсветку|Показать подсветку/ }).count()) === 1, 'приложение осталось работоспособным');
+  // Сеть: ни одного внешнего хоста. Любое обращение наружу перехвачено и оборвано, и такая попытка сама по себе провал.
+  r.ok(!(await page.getByRole('link', { name: /Главред/ }).count()) && !(await page.getByText(/Главред|glvrd/i).count()), 'кнопки и упоминаний Главреда на экране нет');
+  r.ok(await page.locator('a[href^="http"]').count() === 0, 'на экране нет внешних ссылок');
 
   r.log('\nХОСТЫ (все запросы контекста, включая новую вкладку):');
   for (const [h, n] of net.hosts) r.log(' ', h, n);
-  r.log('заблокировано внешних запросов:', JSON.stringify(net.blocked));
-  r.ok(errors.filter((e) => !/glvrd|ERR_FAILED|Failed to load resource/.test(e)).length === 0, 'нет ошибок в консоли ' + JSON.stringify(errors));
+  r.log('попыток обратиться наружу:', JSON.stringify(net.blocked));
+  r.ok(net.blocked.length === 0, 'ни одной попытки обратиться наружу (любой внешний хост, включая glvrd.ru, был бы перехвачен и оборван)');
+  r.ok([...net.hosts.keys()].every((h) => h === new URL(BASE).origin), 'все запросы только к самому приложению');
+  r.ok(errors.length === 0, 'нет ошибок в консоли ' + JSON.stringify(errors));
   await browser.close();
 }
 
@@ -142,7 +126,7 @@ async function noSource() {
   await page.getByRole('heading', { name: 'Готово' }).waitFor();
   await page.getByRole('button', { name: 'Проверить текст' }).click();
   await tab(page, 'Сравнение').click();
-  r.ok(await page.getByText('сравнивать не с чем').count() === 1, 'пустой исходник: вкладка так и говорит и ничего не считает');
+  r.ok(await page.locator('[data-check-panel]').getByText('сравнивать не с чем').count() === 1, 'пустой исходник: вкладка так и говорит и ничего не считает');
   await browser.close();
 }
 
