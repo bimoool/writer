@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { createAutosaver, pickNewer, type Autosaver } from '../lib/autosave';
-import { DEFAULT_SETTINGS, createDoc, type CreateDocOptions } from '../lib/doc';
+import { DEFAULT_SETTINGS, cloneForRetry, createDoc, type CreateDocOptions } from '../lib/doc';
 import type { Doc, Settings } from '../lib/types';
 import { classifyDbError, type DbErrorKind, type Repo } from './db';
 
@@ -33,6 +33,11 @@ interface AppState {
   createDocument(source: string, opts?: Omit<CreateDocOptions, 'now' | 'newId'>): Doc;
   /** Делает документ текущим и, если указан экран, переходит на него. */
   openDocument(id: string | null, screen?: Screen): void;
+  /** «Пройти заново»: копия документа без прогресса, сессия открывается на первом блоке. Старый документ остаётся. */
+  restartDocument(id: string, titleSuffix: string): Doc | null;
+  /** Home откроется с фокусом в поле вставки (флаг сбрасывает сам Home). */
+  pasteFocusRequested: boolean;
+  requestPasteFocus(on: boolean): void;
   /** Любое изменение документа идёт через эту функцию: она ставит updatedAt и автосохранение. */
   updateDoc(id: string, change: (doc: Doc) => Doc): void;
   renameDoc(id: string, title: string): void;
@@ -161,6 +166,21 @@ export const useApp = create<AppState>((set, get) => {
     openDocument(id, screen) {
       set({ currentDocId: id, ...(screen ? { screen } : {}) });
       persistSession();
+    },
+
+    restartDocument(id, titleSuffix) {
+      const old = get().docs.find((d) => d.id === id);
+      if (!old || frozen) return null;
+      const doc = cloneForRetry(old, `${old.title} ${titleSuffix}`);
+      set({ docs: sortDocs([doc, ...get().docs]), currentDocId: doc.id, screen: 'session' });
+      saver?.schedule(doc);
+      persistSession();
+      return doc;
+    },
+
+    pasteFocusRequested: false,
+    requestPasteFocus(on) {
+      set({ pasteFocusRequested: on });
     },
 
     updateDoc(id, change) {

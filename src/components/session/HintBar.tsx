@@ -1,5 +1,5 @@
 import type { KeyboardEvent, PointerEvent } from 'react';
-import { useRef } from 'react';
+import { useId, useRef } from 'react';
 import { ru } from '../../i18n/ru';
 import type { HintLevel } from '../../lib/hints';
 import { keepFocus } from './keepFocus';
@@ -12,6 +12,8 @@ interface Props {
   onToggle: (level: HintLevel) => void;
   onPeekStart: () => void;
   onPeekEnd: () => void;
+  /** Одноразовая строка-намёк над подписью (пока не открыта первая подсказка). */
+  intro: boolean;
 }
 
 const base = 'min-h-10 rounded-surface px-2.5 text-meta transition-colors duration-[120ms]';
@@ -63,7 +65,8 @@ function useHold(onStart: () => void, onEnd: () => void) {
   };
 }
 
-export function HintBar({ open, peeking, hidden, onToggle, onPeekStart, onPeekEnd }: Props) {
+export function HintBar({ open, peeking, hidden, onToggle, onPeekStart, onPeekEnd, intro }: Props) {
+  const labelId = useId();
   const hold = useHold(onPeekStart, onPeekEnd);
   const toggles: Array<{ level: HintLevel; label: string }> = [
     { level: 1, label: ru.session.hints.topics },
@@ -71,35 +74,41 @@ export function HintBar({ open, peeking, hidden, onToggle, onPeekStart, onPeekEn
     { level: 3, label: ru.session.hints.letters },
   ];
   return (
-    <div role="group" aria-label={ru.session.hints.label} data-hidden={hidden} className="hint-bar -mx-1 flex flex-wrap items-center gap-x-0.5">
-      {toggles.map(({ level, label }) => (
+    <div data-hidden={hidden} className="hint-bar">
+      {intro && <p className="text-meta text-text-dim">{ru.session.hints.intro}</p>}
+      <p id={labelId} className="text-meta text-text-dim">
+        {ru.session.hints.label}
+      </p>
+      <div role="group" aria-labelledby={labelId} className="-mx-1 flex flex-wrap items-center gap-x-0.5">
+        {toggles.map(({ level, label }) => (
+          <button
+            key={level}
+            type="button"
+            aria-pressed={open[level]}
+            aria-keyshortcuts={`Alt+${level}`}
+            className={`${base} ${tone(open[level])}`}
+            onPointerDown={keepFocus}
+            onMouseDown={keepFocus}
+            onClick={() => onToggle(level)}
+          >
+            {label}
+          </button>
+        ))}
         <button
-          key={level}
           type="button"
-          aria-pressed={open[level]}
-          aria-keyshortcuts={`Alt+${level}`}
-          className={`${base} ${tone(open[level])}`}
-          onPointerDown={keepFocus}
-          onMouseDown={keepFocus}
-          onClick={() => onToggle(level)}
+          aria-pressed={peeking}
+          aria-keyshortcuts="Alt+4"
+          title={ru.session.hints.hold}
+          className={`hold-button ${base} border border-line ${tone(peeking)}`}
+          {...hold}
         >
-          {label}
+          {ru.session.hints.peek}
+          {/* Как пользоваться кнопкой: на десктопе в широком окне «удерживать», на сенсорных экранах всегда «держи»,
+              потому что подсказки при наведении там нет. */}
+          <span className="hold-note-fine hidden text-text-ghost sm:inline"> {ru.session.hints.hold}</span>
+          <span className="hold-note-touch text-text-dim"> {ru.session.hints.holdTouch}</span>
         </button>
-      ))}
-      <button
-        type="button"
-        aria-pressed={peeking}
-        aria-keyshortcuts="Alt+4"
-        title={ru.session.hints.hold}
-        className={`hold-button ${base} border border-line ${tone(peeking)}`}
-        {...hold}
-      >
-        {ru.session.hints.peek}
-        {/* Как пользоваться кнопкой: на десктопе в широком окне «удерживать», на сенсорных экранах всегда «держи»,
-            потому что подсказки при наведении там нет. */}
-        <span className="hold-note-fine hidden text-text-ghost sm:inline"> {ru.session.hints.hold}</span>
-        <span className="hold-note-touch text-text-dim"> {ru.session.hints.holdTouch}</span>
-      </button>
+      </div>
     </div>
   );
 }

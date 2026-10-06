@@ -19,14 +19,12 @@ const primary =
   'min-h-12 rounded-surface bg-ink px-6 text-ui font-medium text-bg transition-colors duration-[120ms] hover:bg-ink-hover disabled:opacity-60';
 const secondary =
   'min-h-12 rounded-surface border border-line px-4 text-ui text-text transition-colors duration-[120ms] hover:border-ink disabled:opacity-60';
-const quiet =
-  'min-h-12 rounded-surface px-3 text-ui text-text-dim transition-colors duration-[120ms] hover:text-text disabled:opacity-60';
 
 const FORMATS: ExportFormat[] = ['docx', 'md', 'txt'];
 /** Уже этой ширины колонки не помещаются, вместо них вкладки (SPEC §9). */
 const WIDE = '(min-width: 700px)';
 
-type Notice = 'copied' | 'copyFailed' | 'exportFailed' | 'glvrdCopied' | 'glvrdFailed' | null;
+type Notice = 'copied' | 'copyFailed' | 'exportFailed' | null;
 
 /** Копирование. Clipboard API есть только в защищённом контексте (https), на обычном http работает запасной путь. */
 async function copyText(text: string): Promise<boolean> {
@@ -84,7 +82,7 @@ export function Result() {
   const flash = (next: Notice) => {
     clearTimeout(timer.current);
     setNotice(next);
-    timer.current = setTimeout(() => setNotice(null), next === 'copied' ? 3000 : next === 'glvrdCopied' ? 12000 : 6000);
+    timer.current = setTimeout(() => setNotice(null), next === 'copied' ? 3000 : 6000);
   };
 
   const finished = !!doc && frontierIndex(doc) >= doc.blocks.length;
@@ -180,9 +178,6 @@ export function Result() {
     }
   };
 
-  // Мостик к Главреду: приложение само ничего не отправляет. Текст копируется в буфер, ссылка открывается обычным переходом.
-  const copyForGlvrd = async () => flash((await copyText(text)) ? 'glvrdCopied' : 'glvrdFailed');
-
   const share = async () => {
     if (ready && (await shareFile(ready)) === 'failed') flash('exportFailed');
   };
@@ -193,19 +188,30 @@ export function Result() {
     copied: ru.result.copied,
     copyFailed: ru.result.copyFailed,
     exportFailed: ru.result.exportFailed,
-    glvrdCopied: ru.check.glvrd.copied,
-    glvrdFailed: ru.check.glvrd.copyFailed,
   };
 
   return (
     <main className="mx-auto w-full max-w-[72rem] px-4 pb-20 pt-10">
       <div className="flex flex-wrap items-baseline justify-between gap-x-4">
         <h1 className="font-serif text-h1 text-text">{ru.result.title}</h1>
-        <button type="button" className={`${quiet} -mr-3`} onClick={() => useApp.getState().openDocument(null, 'home')}>
-          {ru.result.home}
-        </button>
       </div>
       <p className="mt-1 text-ui text-text-dim">{ru.result.summary(doc.blocks.length)}</p>
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          className={primary}
+          onClick={() => {
+            const { requestPasteFocus, openDocument } = useApp.getState();
+            requestPasteFocus(true);
+            openDocument(null, 'home');
+          }}
+        >
+          {ru.result.newText}
+        </button>
+        <button type="button" className={secondary} onClick={() => useApp.getState().restartDocument(doc.id, ru.result.retrySuffix)}>
+          {ru.result.retry}
+        </button>
+      </div>
 
       <section aria-label={ru.result.metrics} className="mt-8">
         <MainMetric
@@ -282,17 +288,7 @@ export function Result() {
               {ru.result.share}
             </button>
           )}
-          <a
-            href="https://glvrd.ru"
-            target="_blank"
-            rel="noopener noreferrer"
-            className={`${secondary} inline-flex items-center`}
-            onClick={() => void copyForGlvrd()}
-          >
-            {ru.check.glvrd.open}
-          </a>
         </div>
-        <p className="mt-2 max-w-[32rem] text-meta text-text-dim">{ru.check.glvrd.note}</p>
         <p role="status" className="mt-1 min-h-5 text-meta text-text-dim">
           {notice ? notices[notice] : ''}
         </p>

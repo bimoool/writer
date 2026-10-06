@@ -345,4 +345,28 @@ describe('ошибки записи не теряют текст', () => {
     await new Promise((r) => setTimeout(r, 2100));
     expect(await db.docs.get(doc.id)).toBeUndefined();
   });
+
+  it('restartDocument: копия открывается в сессии, старый документ остаётся', async () => {
+    const st = useApp.getState();
+    const doc = st.createDocument(APPENDIX_A, { title: 'Текст' });
+    st.updateDoc(doc.id, (d) => ({ ...d, blocks: d.blocks.map((b) => ({ ...b, status: 'done' as const, userText: 'мой' })) }));
+    const copy = useApp.getState().restartDocument(doc.id, '(ещё раз)')!;
+    const s = useApp.getState();
+    expect(copy.title).toBe('Текст (ещё раз)');
+    expect([s.screen, s.currentDocId]).toEqual(['session', copy.id]);
+    expect(s.docs).toHaveLength(2);
+    expect(s.docs.find((d) => d.id === doc.id)!.blocks.every((b) => b.status === 'done')).toBe(true);
+    expect(s.docs.find((d) => d.id === copy.id)!.blocks.every((b) => b.status === 'pending' && b.userText === '')).toBe(true);
+    await s.flush();
+    await reload();
+    expect(useApp.getState().docs).toHaveLength(2);
+  });
+
+  it('hintsIntroSeen хранится в настройках и переживает перезагрузку', async () => {
+    expect(useApp.getState().settings.hintsIntroSeen).toBe(false);
+    useApp.getState().setSettings({ hintsIntroSeen: true });
+    await new Promise((r) => setTimeout(r, 100));
+    await reload();
+    expect(useApp.getState().settings.hintsIntroSeen).toBe(true);
+  });
 });

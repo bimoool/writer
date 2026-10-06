@@ -51,4 +51,6 @@ export interface Settings {
   pressureDelaySec: number;
   allowPaste: boolean;
   writingFont: 'serif' | 'mono';
+  /** Строка-намёк про подсказки на первом экране письма уже показана и закрыта первой открытой подсказкой. */
+  hintsIntroSeen: boolean;
 }

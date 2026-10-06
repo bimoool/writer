@@ -32,7 +32,13 @@ export function App() {
     <div className="min-h-dvh bg-bg text-text">
       {/* В сессии шапка закрыта её слоем и не нужна; из порядка Tab она тоже убрана. */}
       <header hidden={screen === 'session'} className="flex items-center justify-between gap-2 px-4 py-2">
-        <span className="text-ui font-medium">{ru.appName}</span>
+        <button
+          type="button"
+          onClick={() => useApp.getState().openDocument(null, 'home')}
+          className="-ml-2 min-h-10 rounded-surface px-2 text-ui font-medium transition-colors duration-[120ms] hover:text-ink"
+        >
+          {ru.appName}
+        </button>
         {/* До загрузки настроек из базы панель не открываем: выбор перезаписали бы загруженные настройки.
             Кнопка невидима, но место держит, чтобы шапка не прыгала. */}
         <button

@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { BackupBar } from '../components/BackupBar';
 import { DocRow } from '../components/DocRow';
 import { useFileDrop } from '../components/useFileDrop';
@@ -14,12 +14,37 @@ const ERROR_TEXT: Record<ImportErrorKind, string> = {
   empty: ru.errors.empty,
 };
 
+function HowSteps() {
+  return (
+    <ol className="m-0 list-none space-y-1 p-0 text-ui text-text-dim">
+      {ru.home.how.steps.map((step, i) => (
+        <li key={step} className="flex gap-2">
+          <span aria-hidden="true" className="tabular-nums text-text-ghost">
+            {i + 1}.
+          </span>
+          <span>{step}</span>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
 export function Home() {
   const docs = useApp((s) => s.docs);
   const [text, setText] = useState('');
   const [error, setError] = useState<ImportErrorKind | null>(null);
   const [now] = useState(() => Date.now());
   const fileInput = useRef<HTMLInputElement>(null);
+  const pasteField = useRef<HTMLTextAreaElement>(null);
+  const [howOpen, setHowOpen] = useState(false);
+  const howId = useId();
+
+  // «Новый текст» с экрана итога: фокус сразу в поле вставки. Флаг одноразовый.
+  useEffect(() => {
+    if (!useApp.getState().pasteFocusRequested) return;
+    useApp.getState().requestPasteFocus(false);
+    pasteField.current?.focus();
+  }, []);
 
   /** Создаёт документ и открывает разбивку. Ничего не создаёт, если текст не прошёл проверку. */
   const begin = (source: string, title?: string) => {
@@ -51,6 +76,7 @@ export function Home() {
       </h1>
 
       <textarea
+        ref={pasteField}
         value={text}
         onChange={(e) => {
           setText(e.target.value);
@@ -107,6 +133,30 @@ export function Home() {
         <p role="alert" className="mt-3 text-ui text-danger">
           {ERROR_TEXT[error]}
         </p>
+      )}
+
+      {docs.length === 0 ? (
+        <section aria-labelledby={howId} className="mt-8">
+          <h2 id={howId} className="mb-2 text-ui font-medium text-text-dim">
+            {ru.home.how.title}
+          </h2>
+          <HowSteps />
+        </section>
+      ) : (
+        <div className="mt-6">
+          <button
+            type="button"
+            aria-expanded={howOpen}
+            aria-controls={howId}
+            onClick={() => setHowOpen(!howOpen)}
+            className="min-h-10 rounded-surface px-1 text-ui text-text-dim underline underline-offset-4 transition-colors duration-[120ms] hover:text-text"
+          >
+            {ru.home.how.title}
+          </button>
+          <div id={howId} hidden={!howOpen}>
+            <HowSteps />
+          </div>
+        </div>
       )}
 
       {docs.length > 0 && (

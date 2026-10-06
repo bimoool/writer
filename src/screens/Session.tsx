@@ -141,12 +141,20 @@ function Stage({ doc, index, onEdit }: StageProps) {
 
   // --- подсказки (SPEC §3.4) ---------------------------------------------------------------
 
+  /** Строка «Забыл блок?» исчезает после первого открытия любой подсказки и больше не возвращается. */
+  const markHintsIntroSeen = () => {
+    if (!settings.hintsIntroSeen) useApp.getState().setSettings({ hintsIntroSeen: true });
+  };
+
   /** Ступени 1–3 включаются и выключаются. В статистику идёт каждое открытие. */
   const toggleLevel = (level: HintLevel) => {
     if (phase !== 'writing') return;
     const opening = !open[level];
     setOpen((o) => ({ ...o, [level]: opening }));
-    if (opening) patch((b) => ({ hints: openLevel(b.hints, level) }));
+    if (opening) {
+      patch((b) => ({ hints: openLevel(b.hints, level) }));
+      markHintsIntroSeen();
+    }
   };
 
   /** Ступень 4: одно удержание = один peek. Длится, пока держат, но не больше PEEK_MAX_MS. */
@@ -156,6 +164,7 @@ function Stage({ doc, index, onEdit }: StageProps) {
     clearTimeout(peekFade.current);
     setPeek('in');
     patch((b) => ({ hints: countPeek(b.hints) }));
+    markHintsIntroSeen();
     peekLimit.current = setTimeout(() => finishPeek(), PEEK_MAX_MS);
   };
 
@@ -459,6 +468,7 @@ function Stage({ doc, index, onEdit }: StageProps) {
                 onToggle={toggleLevel}
                 onPeekStart={beginPeek}
                 onPeekEnd={finishPeek}
+                intro={!settings.hintsIntroSeen}
               />
               <div className="mt-2 flex flex-wrap items-center gap-2 sm:mt-0 sm:gap-4">
                 {/* Настройки без закрытия клавиатуры: верхняя панель на низком экране скрыта. Кнопка не берёт фокус у поля. */}

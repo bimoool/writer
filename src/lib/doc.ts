@@ -15,6 +15,7 @@ export const DEFAULT_SETTINGS: Settings = {
   pressureDelaySec: DEFAULT_DELAY_SEC,
   allowPaste: false,
   writingFont: 'serif',
+  hintsIntroSeen: false,
 };
 
 const TITLE_WORDS = 6;
@@ -82,6 +83,38 @@ export function createDoc(source: string, opts: CreateDocOptions = {}): Doc {
   };
 }
 
+/**
+ * Копия документа для прохождения заново: тот же исходник, блоки и ключевые фразы (включая ручные правки разбивки),
+ * но без текста пользователя, прогресса, подсказок и счётчиков. Старый документ не меняется.
+ */
+export function cloneForRetry(doc: Doc, title: string, opts: { now?: number; newId?: () => string } = {}): Doc {
+  const now = opts.now ?? Date.now();
+  const newId = opts.newId ?? (() => crypto.randomUUID());
+  return {
+    id: newId(),
+    title,
+    source: doc.source,
+    blockSize: doc.blockSize,
+    manualEdits: doc.manualEdits,
+    blocks: doc.blocks.map((b) => ({
+      id: newId(),
+      paragraphIndex: b.paragraphIndex,
+      kind: b.kind,
+      sourceText: b.sourceText,
+      keyphrases: b.keyphrases.map((k) => ({ ...k })),
+      userText: '',
+      status: 'pending',
+      hints: emptyHints(),
+      typedChars: 0,
+      pastedChars: 0,
+      activeMs: 0,
+    })),
+    currentIndex: 0,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
 /** Прогресс для списка документов: сколько блоков завершено. */
 export const doneCount = (doc: Doc) => doc.blocks.filter((b) => b.status === 'done').length;
 
@@ -108,5 +141,6 @@ export function normalizeSettings(raw: unknown): Settings {
     pressureDelaySec: typeof r.pressureDelaySec === 'number' ? clampDelaySec(r.pressureDelaySec) : d.pressureDelaySec,
     allowPaste: typeof r.allowPaste === 'boolean' ? r.allowPaste : d.allowPaste,
     writingFont: oneOf(r.writingFont, ['serif', 'mono'], d.writingFont),
+    hintsIntroSeen: typeof r.hintsIntroSeen === 'boolean' ? r.hintsIntroSeen : d.hintsIntroSeen,
   };
 }
