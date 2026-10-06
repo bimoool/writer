@@ -100,6 +100,16 @@ const closeCutMode = async (ctx) => {
   }
 };
 
+/** Три снимка 360 px: у первого, среднего и последнего разреза (блоки вне экрана не рисуются, полный кадр был бы пустым). */
+const shoot = async (page, name) => {
+  const n = await count(page);
+  for (const [tag, i] of [['first', 1], ['middle', Math.floor(n / 2) + 1], ['last', n - 1]]) {
+    await items(page).nth(i).scrollIntoViewIfNeeded();
+    await page.waitForTimeout(400);
+    await page.screenshot({ path: `${OUT}/${name}-${tag}-360.png` });
+  }
+};
+
 const reload = async (page) => {
   await page.reload();
   await page.locator('li[data-block-id]').first().waitFor();
@@ -140,10 +150,10 @@ async function run(name, mode, body) {
       ok(new Set(await ids(page)).size === n1, 'id блоков уникальны');
       await flushed(page);
       ok((await storedTexts(page)).length === n0 + 3, 'в хранилище тоже +3 блока');
-      await page.screenshot({ path: `${OUT}/a-${mode}-after-cuts-360.png`, fullPage: true });
+      await shoot(page, `a-${mode}-after-cuts`);
       await reload(page);
       ok((await count(page)) === n0 + 3, 'после перезагрузки те же +3 блока');
-      await page.screenshot({ path: `${OUT}/a-${mode}-after-reload-360.png`, fullPage: true });
+      await shoot(page, `a-${mode}-after-reload`);
     });
 
     // б) два разреза подряд в одном блоке.
