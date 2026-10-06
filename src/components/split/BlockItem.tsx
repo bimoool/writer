@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent } from 'react';
 import { ru } from '../../i18n/ru';
 import { buildSegments, cutGaps, type Segment } from '../../lib/blocks';
 import { templatePieces, type TemplateSpot } from '../../lib/sourceTemplates';
@@ -49,6 +49,16 @@ function withSelection(segments: Segment[], range: Keyphrase | null): Piece[] {
 const action =
   'min-h-10 rounded-surface px-2 text-meta text-text-dim transition-colors duration-[120ms] hover:text-text';
 
+/**
+ * Клик по месту разреза режет сразу только мышью. Касание по тексту разреза не делает: пальцем это случайные
+ * срабатывания при прокрутке и выделении, там работает режим «Разрезать». Программный клик (detail 0) тоже не режет.
+ */
+const isMouseCut = (e: MouseEvent<HTMLElement>) => {
+  if (e.detail === 0) return false;
+  const type = (e.nativeEvent as PointerEvent).pointerType;
+  return type ? type === 'mouse' : window.matchMedia('(hover: hover)').matches;
+};
+
 const hasSelection = () => {
   const sel = window.getSelection();
   return !!sel && !sel.isCollapsed;
@@ -79,6 +89,11 @@ export function BlockItem({ block, index, total, lang, editable, cutMode, notice
 
   const { sourceText, keyphrases } = block;
   const gaps = useMemo(() => cutGaps(sourceText, lang, keyphrases), [sourceText, lang, keyphrases]);
+  // Почему резать нельзя: в блоке одно предложение или все места разреза внутри подсвеченных фраз.
+  const cutBlockedReason = useMemo(
+    () => (gaps.length > 0 ? null : cutGaps(sourceText, lang).length === 0 ? ru.split.cutOneSentence : ru.split.cutThroughPhrase),
+    [gaps, sourceText, lang],
+  );
   const segments = useMemo(() => buildSegments(sourceText, keyphrases, gaps), [sourceText, keyphrases, gaps]);
   const words = useMemo(() => sourceText.split(/\s+/).filter(Boolean).length, [sourceText]);
 
@@ -238,8 +253,8 @@ export function BlockItem({ block, index, total, lang, editable, cutMode, notice
                 data-o={seg.start}
                 aria-hidden="true"
                 className="cut-gap"
-                onClick={() => {
-                  if (!hasSelection()) onCut(seg.end);
+                onClick={(e) => {
+                  if (isMouseCut(e) && !hasSelection()) onCut(seg.end);
                 }}
               >
                 {withTemplates(seg.start, seg.end)}
@@ -271,7 +286,16 @@ export function BlockItem({ block, index, total, lang, editable, cutMode, notice
                 {ru.split.selectWords}
               </button>
             )}
-            {gaps.length > 0 && (
+            {cutBlockedReason ? (
+              <>
+                <button type="button" data-action="cut" disabled aria-describedby={`cut-why-${block.id}`} className={`${action} disabled:cursor-default disabled:opacity-50`}>
+                  {ru.split.cut}
+                </button>
+                <span id={`cut-why-${block.id}`} className="self-center px-1 text-meta text-text-dim">
+                  {cutBlockedReason}
+                </span>
+              </>
+            ) : (
               <button type="button" data-action="cut" aria-pressed={cutMode} onClick={onToggleCut} className={action}>
                 {cutMode ? ru.split.cutCancel : ru.split.cut}
               </button>

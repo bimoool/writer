@@ -4,7 +4,7 @@ import { TemplatesBar } from '../components/split/TemplatesBar';
 import { SizeToggle } from '../components/split/SizeToggle';
 import { useSelectionCapture, type BlockSelection } from '../components/split/selection';
 import { ru } from '../i18n/ru';
-import { addKeyphrase, cutDocBlock, hasProgress, mergeDocBlocks, removeKeyphraseAt, resegmentDoc, setKeyphrases } from '../lib/blocks';
+import { addKeyphrase, cutDocBlock, cutModeTarget, hasProgress, mergeDocBlocks, removeKeyphraseAt, resegmentDoc, setKeyphrases } from '../lib/blocks';
 import type { TemplateSpot } from '../lib/sourceTemplates';
 import { detectLang } from '../lib/tokens';
 import type { BlockSize, Doc } from '../lib/types';
@@ -34,7 +34,13 @@ export function Split() {
   /** Фраза, убранная только что: слово, выделенное вторым кликом двойного щелчка, новой фразой не становится. */
   const justRemoved = useRef<{ blockId: string; start: number; end: number; at: number } | null>(null);
 
-  const [cutBlockId, setCutBlockId] = useState<string | null>(null);
+  const [cutBlockId, setCutBlockState] = useState<string | null>(null);
+  // Режим разреза читается и из обработчиков, созданных до последней отрисовки: ссылка всегда актуальна.
+  const cutBlockRef = useRef<string | null>(null);
+  const setCutBlockId = (id: string | null) => {
+    cutBlockRef.current = id;
+    setCutBlockState(id);
+  };
   const [confirmSize, setConfirmSize] = useState<BlockSize | null>(null);
   const [notice, setNotice] = useState<{ blockId: string; text: string } | null>(null);
   // Стек отмены только в памяти: уход с экрана размонтирует компонент и стек пропадает.
@@ -70,7 +76,8 @@ export function Split() {
       find(`[data-action="${target.action === 'row' ? 'cut' : target.action}"]`) ??
       find(`[data-action="${other}"]`) ??
       find('[data-block-text]');
-    el?.focus();
+    // Без прокрутки: после разреза экран остаётся на месте, фокус уходит к месту разреза или к кнопке блока.
+    el?.focus({ preventScroll: true });
   }, [doc?.blocks, cutBlockId]);
 
   useEffect(() => {
@@ -261,7 +268,7 @@ export function Split() {
                 edit((d) => mergeDocBlocks(d, at));
               }}
               onToggleCut={() => {
-                const enabling = cutBlockId !== block.id;
+                const enabling = cutBlockRef.current !== block.id;
                 focusAfter.current = { id: block.id, action: enabling ? 'row' : 'cut' };
                 setCutBlockId(enabling ? block.id : null);
               }}
@@ -269,9 +276,14 @@ export function Split() {
               onCut={(offset) => {
                 const at = indexOf(block.id);
                 if (at < 0) return;
-                focusAfter.current = { id: block.id, action: 'cut' };
-                setCutBlockId(null);
+                // Режим открыт у этого блока: он остаётся открытым, чтобы резать дальше. Клик мышью по месту
+                // разреза без режима режим не включает, а режим другого блока не трогает.
+                const keepMode = cutBlockRef.current === block.id;
                 edit((d) => cutDocBlock(d, at, offset, newId));
+                const doc = currentDoc();
+                const target = keepMode && doc ? cutModeTarget(doc, block.id, lang) : null;
+                focusAfter.current = target ? { id: target, action: 'row' } : { id: block.id, action: 'cut' };
+                if (keepMode) setCutBlockId(target);
               }}
             />
           ))}

@@ -5,6 +5,7 @@ import {
   buildSegments,
   cutDocBlock,
   cutGaps,
+  cutModeTarget,
   hasProgress,
   mergeBlocks,
   mergeDocBlocks,
@@ -327,5 +328,112 @@ describe('склейка не обрезает фразы', () => {
     });
     const merged = mergeBlocks(mk('a', 0), mk('b', 0));
     expect(merged.keyphrases.length).toBe(8);
+  });
+});
+
+/** Документ из 8 абзацев по три предложения: каждый абзац при коротком размере остаётся блоком. */
+const threeSentences = (n: number) =>
+  Array.from({ length: n }, (_, i) => `Первая мысль абзаца ${i + 1} про реку. Вторая мысль абзаца ${i + 1} про гору. Третья мысль абзаца ${i + 1} про лес.`).join('\n\n');
+
+describe('последовательные разрезы (регрессия: «режется только один блок», «разрезы не сохраняются»)', () => {
+  // у документа и у новых блоков разные префиксы id: иначе совпавшие счётчики дали бы дубли
+  const fresh = () => {
+    let n = 0;
+    return () => `new${++n}`;
+  };
+  const docOf = () => createDoc(threeSentences(8), { blockSize: 'short', newId: seq() });
+  /** Режет блок по id в его первой точке разреза: так же, как обработчик на экране, по актуальному документу. */
+  const cutById = (doc: Doc, id: string, gap = 0, newId = fresh()) => {
+    const at = doc.blocks.findIndex((b) => b.id === id);
+    const b = doc.blocks[at]!;
+    return cutDocBlock(doc, at, cutGaps(b.sourceText, 'ru', b.keyphrases)[gap]!.end, newId);
+  };
+  const joined = (doc: Doc) => doc.blocks.map((b) => b.sourceText).join(' ');
+
+  it('первый, средний и последний блок подряд: +3 блока, все разрезы на месте, текст целый', () => {
+    const start = docOf();
+    expect(start.blocks.length).toBeGreaterThanOrEqual(8);
+    const ids = start.blocks.map((b) => b.id);
+    const ids2 = fresh();
+    let doc = cutById(start, ids[0]!, 0, ids2);
+    doc = cutById(doc, ids[Math.floor(ids.length / 2)]!, 0, ids2);
+    doc = cutById(doc, ids[ids.length - 1]!, 0, ids2);
+    expect(doc.blocks).toHaveLength(start.blocks.length + 3);
+    expect(joined(doc)).toBe(joined(start));
+    expect(new Set(doc.blocks.map((b) => b.id)).size).toBe(doc.blocks.length);
+    // левые части сохранили id, правые получили новые
+    for (const id of [ids[0]!, ids[Math.floor(ids.length / 2)]!, ids[ids.length - 1]!]) expect(doc.blocks.some((b) => b.id === id)).toBe(true);
+    expect(doc.blocks.map((b) => b.paragraphIndex)).toEqual([...doc.blocks.map((b) => b.paragraphIndex)].sort((a, b) => a - b));
+  });
+
+  it('два разреза подряд в одном блоке: по второй точке, затем по первой левой части', () => {
+    const start = docOf();
+    const id = start.blocks[2]!.id;
+    let doc = cutById(start, id, 1);
+    expect(doc.blocks).toHaveLength(start.blocks.length + 1);
+    doc = cutById(doc, id, 0);
+    expect(doc.blocks).toHaveLength(start.blocks.length + 2);
+    expect(joined(doc)).toBe(joined(start));
+    expect(doc.blocks.slice(2, 5).map((b) => b.sourceText.split(/(?<=\.)\s/).length)).toEqual([1, 1, 1]);
+  });
+
+  it('два разреза подряд в одном блоке: по первой точке, затем по правой части', () => {
+    const start = docOf();
+    let doc = cutById(start, start.blocks[3]!.id, 0);
+    const rightId = doc.blocks[4]!.id;
+    expect(rightId).not.toBe(start.blocks[3]!.id);
+    doc = cutById(doc, rightId, 0);
+    expect(doc.blocks).toHaveLength(start.blocks.length + 2);
+    expect(joined(doc)).toBe(joined(start));
+    expect(doc.blocks.slice(3, 6).every((b) => cutGaps(b.sourceText, 'ru').length === 0)).toBe(true);
+  });
+
+  it('разрез по индексу из устаревшего снимка не нужен: разрез по id после чужого разреза попадает в свой блок', () => {
+    const start = docOf();
+    const target = start.blocks[5]!;
+    // перед ним разрезан более ранний блок: индекс 5 теперь указывает на другой блок
+    const after = cutById(start, start.blocks[0]!.id);
+    const at = after.blocks.findIndex((b) => b.id === target.id);
+    expect(at).toBe(6);
+    expect(after.blocks[5]!.sourceText).not.toBe(target.sourceText);
+    const doc = cutById(after, target.id);
+    expect(doc.blocks[6]!.id).toBe(target.id);
+    expect(doc.blocks).toHaveLength(start.blocks.length + 2);
+  });
+
+  it('правила: левая часть сохраняет id и paragraphIndex, правая получает новый id, фразы остаются со своей частью', () => {
+    const start = docOf();
+    const b = start.blocks[1]!;
+    const gap = cutGaps(b.sourceText, 'ru', b.keyphrases)[0]!;
+    const doc = cutById(start, b.id);
+    const [l, r] = [doc.blocks[1]!, doc.blocks[2]!];
+    expect([l.id, l.paragraphIndex, r.paragraphIndex]).toEqual([b.id, b.paragraphIndex, b.paragraphIndex]);
+    expect(r.id).not.toBe(b.id);
+    for (const p of start.blocks[1]!.keyphrases) {
+      const text = b.sourceText.slice(p.start, p.end);
+      if (p.end <= gap.start) expect(phraseTexts(l.sourceText, l.keyphrases)).toContain(text);
+      else if (p.start >= gap.end) expect(phraseTexts(r.sourceText, r.keyphrases)).toContain(text);
+    }
+    expect(l.keyphrases.length).toBeGreaterThanOrEqual(3);
+    expect(r.keyphrases.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('cutModeTarget: режим остаётся в том же блоке, пока в нём есть точки, затем переходит к правой части, затем закрывается', () => {
+    const start = docOf();
+    const id = start.blocks[0]!.id;
+    const first = cutById(start, id, 1); // слева два предложения: точка ещё есть
+    expect(cutModeTarget(first, id, 'ru')).toBe(id);
+    const second = cutById(first, id, 0); // слева одно предложение, справа тоже одно
+    expect(cutModeTarget(second, id, 'ru')).toBeNull();
+    const viaLeft = cutById(start, id, 0); // слева одно предложение, справа два
+    expect(cutModeTarget(viaLeft, id, 'ru')).toBe(viaLeft.blocks[1]!.id);
+    expect(cutModeTarget(viaLeft, 'нет-такого', 'ru')).toBeNull();
+  });
+
+  it('заголовок после разреза: левая часть остаётся заголовком, правая становится обычным текстом', () => {
+    const heading = block({ id: 'h', kind: 'heading', paragraphIndex: 3, sourceText: 'Как устроена река. И почему она меняется.' });
+    const [l, r] = splitBlock(heading, cutGaps(heading.sourceText, 'ru')[0]!.end, seq());
+    expect([l.id, l.kind, l.paragraphIndex]).toEqual(['h', 'heading', 3]);
+    expect([r.kind, r.paragraphIndex]).toEqual(['text', 3]);
   });
 });

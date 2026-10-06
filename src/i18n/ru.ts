@@ -87,6 +87,8 @@ export const ru = {
     cut: 'Разрезать',
     cutCancel: 'Отмена',
     cutHere: 'Разрезать здесь',
+    cutOneSentence: 'в блоке одно предложение',
+    cutThroughPhrase: 'разрез прошёл бы через подсвеченную фразу',
     removePhrase: (phrase: string) => `Убрать подсветку: ${phrase}`,
     addPhrase: 'Выделить маркером',
     overlap: 'Эта часть уже подсвечена. Сначала убери подсветку',

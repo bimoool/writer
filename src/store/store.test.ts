@@ -1,7 +1,10 @@
 import 'fake-indexeddb/auto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { APPENDIX_A } from '../lib/__fixtures__/appendix-a';
+import { cutDocBlock, cutGaps } from '../lib/blocks';
 import { DEFAULT_SETTINGS } from '../lib/doc';
+import { restoreSnapshot, snapshotOf } from '../lib/undo';
+import type { Doc } from '../lib/types';
 import { makeBackup, parseBackup, serializeBackup } from '../lib/io/backup';
 import { connectStore, useApp, writeRescue } from './app';
 import { classifyDbError, createRepo, openDb, type SvoimiDB } from './db';
@@ -368,5 +371,70 @@ describe('ошибки записи не теряют текст', () => {
     await new Promise((r) => setTimeout(r, 100));
     await reload();
     expect(useApp.getState().settings.hintsIntroSeen).toBe(true);
+  });
+
+  describe('разрезы на Split сохраняются', () => {
+    const cutOf = (doc: Doc, index: number, gap = 0) => {
+      const b = doc.blocks[index]!;
+      return cutDocBlock(doc, index, cutGaps(b.sourceText, 'ru', b.keyphrases)[gap]!.end, () => crypto.randomUUID());
+    };
+    const source = Array.from({ length: 8 }, (_, i) => `Первая мысль ${i + 1} про реку. Вторая мысль ${i + 1} про гору. Третья мысль ${i + 1} про лес.`).join('\n\n');
+
+    it('несколько разрезов подряд в разных блоках без паузы переживают перезагрузку', async () => {
+      const st = useApp.getState();
+      const doc = st.createDocument(source, { blockSize: 'short' });
+      st.go('split');
+      const n0 = doc.blocks.length;
+      // как обработчик на экране: каждый разрез читает актуальный документ из стора
+      for (const index of [0, 4, n0 - 1]) useApp.getState().updateDoc(doc.id, (d) => cutOf(d, index === n0 - 1 ? d.blocks.length - 1 : index));
+      const cutDoc = useApp.getState().docs[0]!;
+      expect(cutDoc.blocks).toHaveLength(n0 + 3);
+      expect(cutDoc.manualEdits).toBe(true);
+      await useApp.getState().flush();
+      await reload();
+      const back = useApp.getState().docs[0]!;
+      expect(back.blocks).toEqual(cutDoc.blocks);
+      expect(back.manualEdits).toBe(true);
+      expect(new Set(back.blocks.map((b) => b.id)).size).toBe(back.blocks.length);
+    });
+
+    it('разрез сохраняется и без flush: автосохранение по таймеру', async () => {
+      const st = useApp.getState();
+      const doc = st.createDocument(source, { blockSize: 'short' });
+      await useApp.getState().flush();
+      useApp.getState().updateDoc(doc.id, (d) => cutOf(d, 2));
+      await new Promise((r) => setTimeout(r, 300));
+      expect((await db.docs.get(doc.id))!.blocks).toHaveLength(doc.blocks.length + 1);
+    });
+
+    it('открытие документа, переходы между экранами и перезагрузка блоки не пересобирают', async () => {
+      const st = useApp.getState();
+      const doc = st.createDocument(source, { blockSize: 'short' });
+      useApp.getState().updateDoc(doc.id, (d) => cutOf(d, 1));
+      const cutBlocks = useApp.getState().docs[0]!.blocks;
+      for (const screen of ['split', 'home', 'split', 'session', 'split'] as const) {
+        useApp.getState().openDocument(doc.id, screen);
+        expect(useApp.getState().docs[0]!.blocks).toBe(cutBlocks);
+      }
+      await useApp.getState().flush();
+      await reload();
+      expect(useApp.getState().docs[0]!.blocks).toEqual(cutBlocks);
+      useApp.getState().openDocument(doc.id, 'split');
+      expect(useApp.getState().docs[0]!.manualEdits).toBe(true);
+    });
+
+    it('отмена разреза возвращает прежние блоки, повторный разрез снова работает и сохраняется текущее состояние', async () => {
+      const st = useApp.getState();
+      const doc = st.createDocument(source, { blockSize: 'short' });
+      const before = snapshotOf(useApp.getState().docs[0]!);
+      useApp.getState().updateDoc(doc.id, (d) => cutOf(d, 3));
+      useApp.getState().updateDoc(doc.id, (d) => restoreSnapshot(d, before));
+      expect(useApp.getState().docs[0]!.blocks).toHaveLength(doc.blocks.length);
+      useApp.getState().updateDoc(doc.id, (d) => cutOf(d, 5));
+      const current = useApp.getState().docs[0]!.blocks;
+      await useApp.getState().flush();
+      await reload();
+      expect(useApp.getState().docs[0]!.blocks).toEqual(current);
+    });
   });
 });

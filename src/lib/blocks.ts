@@ -153,6 +153,20 @@ export function cutDocBlock(doc: Doc, index: number, offset: number, newId: () =
   return touch(doc, withTopUp(doc, blocks, [index, index + 1]));
 }
 
+/**
+ * Блок, в котором после разреза остаётся открытым режим «Разрезать» (SPEC §3.2): тот же блок (левая часть сохраняет id),
+ * а если в нём точек разреза больше нет, то правая часть. null, если резать дальше негде: режим закрывается.
+ */
+export function cutModeTarget(doc: Doc, blockId: string, lang: Lang = detectLang(doc.source)): string | null {
+  const at = doc.blocks.findIndex((b) => b.id === blockId);
+  if (at < 0) return null;
+  const hasGaps = (b: Block | undefined) => !!b && cutGaps(b.sourceText, lang, b.keyphrases).length > 0;
+  const same = doc.blocks[at];
+  const right = doc.blocks[at + 1];
+  if (hasGaps(same)) return blockId;
+  return hasGaps(right) ? right!.id : null;
+}
+
 /** Пересчёт разбивки с нуля: все ручные правки теряются. */
 export function resegmentDoc(doc: Doc, size: BlockSize, newId: () => string): Doc {
   return { ...doc, blockSize: size, manualEdits: false, blocks: buildBlocks(doc.source, size, newId), currentIndex: 0 };
