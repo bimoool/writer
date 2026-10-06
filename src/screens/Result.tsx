@@ -20,6 +20,10 @@ const primary =
 const secondary =
   'min-h-12 rounded-surface border border-line px-4 text-ui text-text transition-colors duration-[120ms] hover:border-ink disabled:opacity-60';
 
+/** Самая тихая из трёх: контур и приглушённый текст, чтобы по привычке не нажать вместо «Скопировать». */
+const tertiary =
+  'min-h-12 rounded-surface border border-line px-4 text-ui text-text-dim transition-colors duration-[120ms] hover:border-ink hover:text-text disabled:opacity-60';
+
 const FORMATS: ExportFormat[] = ['docx', 'md', 'txt'];
 /** Уже этой ширины колонки не помещаются, вместо них вкладки (SPEC §9). */
 const WIDE = '(min-width: 700px)';
@@ -199,7 +203,7 @@ export function Result() {
       <div className="mt-4 flex flex-wrap items-center gap-2">
         <button
           type="button"
-          className={primary}
+          className={secondary}
           onClick={() => {
             const { requestPasteFocus, openDocument } = useApp.getState();
             requestPasteFocus(true);
@@ -208,7 +212,7 @@ export function Result() {
         >
           {ru.result.newText}
         </button>
-        <button type="button" className={secondary} onClick={() => useApp.getState().restartDocument(doc.id, ru.result.retrySuffix)}>
+        <button type="button" className={tertiary} onClick={() => useApp.getState().restartDocument(doc.id, ru.result.retrySuffix)}>
           {ru.result.retry}
         </button>
       </div>

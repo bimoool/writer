@@ -142,7 +142,17 @@ async function resultScreen() {
   r.ok(await page.getByRole('button', { name: 'На главную' }).count() === 0, 'Result: «На главную» убрана');
   r.ok(await page.getByRole('button', { name: 'Новый текст' }).count() === 1 && await page.getByRole('button', { name: 'Пройти заново' }).count() === 1, 'Result: две кнопки «Новый текст» и «Пройти заново»');
   r.ok(await page.getByText(/Главред|glvrd/i).count() === 0, 'Result: Главреда нет');
-  await page.screenshot({ path: `${OUT}/result-360.png` });
+  // Иерархия: «Скопировать» основная (залита), «Новый текст» контурная, «Пройти заново» контурная и тише всех.
+  const look = (name) => page.getByRole('button', { name }).evaluate((e) => { const c = getComputedStyle(e); return { bg: c.backgroundColor, border: c.borderTopWidth, color: c.color }; });
+  const copyB = await look('Скопировать');
+  const newB = await look('Новый текст');
+  const retryB = await look('Пройти заново');
+  r.log('кнопки:', JSON.stringify({ copyB, newB, retryB }));
+  r.ok(copyB.bg !== 'rgba(0, 0, 0, 0)' && newB.bg === 'rgba(0, 0, 0, 0)' && retryB.bg === 'rgba(0, 0, 0, 0)', 'Result: «Скопировать» залита, «Новый текст» и «Пройти заново» контурные');
+  r.ok(newB.border === '1px' && retryB.border === '1px' && newB.color !== retryB.color, 'Result: у вторичных контур, «Пройти заново» приглушённее');
+  const ov = await page.evaluate(() => [document.documentElement.scrollWidth, innerWidth]);
+  r.ok(ov[0] <= ov[1], `Result на 360 px: нет горизонтальной прокрутки (${ov})`);
+  await page.screenshot({ path: `${OUT}/result-360.png`, fullPage: true, clip: { x: 0, y: 0, width: 360, height: 1250 } });
 
   // «Пройти заново»
   await page.getByRole('button', { name: 'Пройти заново' }).click();
@@ -220,6 +230,14 @@ async function emptyReasons() {
   await browser.close();
 }
 
+async function resultWide() {
+  const { browser, page } = await launch({ width: 1280, height: 900 });
+  await seed(page, BASE, [makeRichDoc()], 'result', 'e2e-rich');
+  await page.getByRole('heading', { name: 'Готово' }).waitFor();
+  await page.screenshot({ path: `${OUT}/result-1280.png` });
+  await browser.close();
+}
+
 async function wide() {
   const { browser, page } = await launch({ width: 1280, height: 900 });
   await page.goto(BASE);
@@ -230,7 +248,7 @@ async function wide() {
 }
 
 (async () => {
-  for (const f of [journey, intro_with_peek, reducedMotion, resultScreen, newTextAndCheck, emptyReasons, wide]) {
+  for (const f of [journey, intro_with_peek, reducedMotion, resultScreen, newTextAndCheck, emptyReasons, wide, resultWide]) {
     console.log(`\n== ${f.name}`);
     try { await f(); } catch (e) { r.ok(false, `${f.name}: ${e.message}`); }
   }
