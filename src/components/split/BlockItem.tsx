@@ -13,12 +13,14 @@ interface Props {
   lang: Lang;
   /** До начала работы над текстом блоки можно править. */
   editable: boolean;
+  /** Общий режим разреза экрана: во всех блоках показаны все точки разреза. */
   cutMode: boolean;
+  /** Правая часть только что сделанного разреза: коротко подсвечивается. */
+  flash: boolean;
   /** Сообщение под текстом (например, что выделение пересекается с подсветкой). */
   notice: string | null;
   onRemovePhrase: (phraseIndex: number) => void;
   onMerge: () => void;
-  onToggleCut: () => void;
   onCut: (offset: number) => void;
   /** Добавляет фразу, выбранную с клавиатуры. Пересечение сообщает сам экран, как при выделении мышью. */
   onAddPhrase: (range: Keyphrase) => 'ok' | 'overlap' | 'empty';
@@ -46,6 +48,9 @@ function withSelection(segments: Segment[], range: Keyphrase | null): Piece[] {
   });
 }
 
+/** Сколько первых слов предложения читает скринридер в названии кнопки разреза. */
+const CUT_LABEL_WORDS = 6;
+
 const action =
   'min-h-10 rounded-surface px-2 text-meta text-text-dim transition-colors duration-[120ms] hover:text-text';
 
@@ -65,7 +70,7 @@ const hasSelection = () => {
 };
 
 /** Блок разбивки: номер, текст с маркером, счётчик слов и действия. */
-export function BlockItem({ block, index, total, lang, editable, cutMode, notice, onRemovePhrase, onMerge, onToggleCut, onCut, onAddPhrase, templates }: Props) {
+export function BlockItem({ block, index, total, lang, editable, cutMode, flash, notice, onRemovePhrase, onMerge, onCut, onAddPhrase, templates }: Props) {
   const item = useRef<HTMLLIElement>(null);
   const text = useRef<HTMLDivElement>(null);
   const keyboardFocus = useRef<number | null>(null);
@@ -94,6 +99,16 @@ export function BlockItem({ block, index, total, lang, editable, cutMode, notice
     () => (gaps.length > 0 ? null : cutGaps(sourceText, lang).length === 0 ? ru.split.cutOneSentence : ru.split.cutThroughPhrase),
     [gaps, sourceText, lang],
   );
+  // Подпись кнопки разреза: первые слова предложения перед ним. Границы берём без учёта подсветки фраз.
+  const cutLabels = useMemo(() => {
+    const all = cutGaps(sourceText, lang);
+    return new Map(
+      all.map((g, i) => {
+        const sentence = sourceText.slice(i > 0 ? all[i - 1]!.end : 0, g.start);
+        return [g.start, ru.split.cutRowLabel(sentence.split(/\s+/).filter(Boolean).slice(0, CUT_LABEL_WORDS).join(' '))] as const;
+      }),
+    );
+  }, [sourceText, lang]);
   const segments = useMemo(() => buildSegments(sourceText, keyphrases, gaps), [sourceText, keyphrases, gaps]);
   const words = useMemo(() => sourceText.split(/\s+/).filter(Boolean).length, [sourceText]);
 
@@ -176,13 +191,10 @@ export function BlockItem({ block, index, total, lang, editable, cutMode, notice
     <li
       ref={item}
       data-block-id={block.id}
+      data-flash={flash || undefined}
       aria-label={ru.progress(index + 1, total)}
       className="block-item grid grid-cols-[auto_1fr] gap-x-3 border-b border-line py-5 sm:grid-cols-[2.5rem_minmax(0,1fr)_4rem]"
       onKeyDown={(e) => {
-        if (cutMode && e.key === 'Escape') {
-          e.preventDefault();
-          onToggleCut();
-        }
         onSelectKey(e);
       }}
       onBlur={(e) => {
@@ -244,8 +256,20 @@ export function BlockItem({ block, index, total, lang, editable, cutMode, notice
           }
           if (seg.kind === 'gap' && editable) {
             return cutMode ? (
-              <button key={seg.start} type="button" data-o={seg.start} className="cut-row" onClick={() => onCut(seg.end)}>
-                {ru.split.cutHere}
+              <button
+                key={seg.start}
+                type="button"
+                data-o={seg.start}
+                className="cut-row"
+                aria-label={cutLabels.get(seg.start) ?? ru.split.cutHere}
+                onClick={() => onCut(seg.end)}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <circle cx="6" cy="6" r="3" />
+                  <circle cx="6" cy="18" r="3" />
+                  <path d="M20 4 8.1 15.9M14.5 14.5 20 20M8.1 8.1 12 12" />
+                </svg>
+                <span aria-hidden="true">{ru.split.cutHere}</span>
               </button>
             ) : (
               <span
@@ -275,7 +299,12 @@ export function BlockItem({ block, index, total, lang, editable, cutMode, notice
 
       {editable && (
         <div className="col-span-2 row-start-3 mt-1 sm:col-span-1 sm:col-start-2 sm:row-start-2">
-          <div className="block-actions" data-persist={cutMode || selecting || undefined}>
+          {cutMode && cutBlockedReason && (
+            <p data-cut-none className="mb-1 text-meta text-text-dim">
+              {cutBlockedReason}
+            </p>
+          )}
+          <div className="block-actions" data-persist={selecting || undefined}>
             {index < total - 1 && (
               <button type="button" data-action="merge" onClick={onMerge} className={action}>
                 {ru.split.merge}
@@ -284,20 +313,6 @@ export function BlockItem({ block, index, total, lang, editable, cutMode, notice
             {spans.length > 0 && (
               <button type="button" data-action="select" aria-pressed={selecting} onClick={toggleSelect} className={`${action} ${selecting ? 'bg-surface text-text' : ''}`}>
                 {ru.split.selectWords}
-              </button>
-            )}
-            {cutBlockedReason ? (
-              <>
-                <button type="button" data-action="cut" disabled aria-describedby={`cut-why-${block.id}`} className={`${action} disabled:cursor-default disabled:opacity-50`}>
-                  {ru.split.cut}
-                </button>
-                <span id={`cut-why-${block.id}`} className="self-center px-1 text-meta text-text-dim">
-                  {cutBlockedReason}
-                </span>
-              </>
-            ) : (
-              <button type="button" data-action="cut" aria-pressed={cutMode} onClick={onToggleCut} className={action}>
-                {cutMode ? ru.split.cutCancel : ru.split.cut}
               </button>
             )}
           </div>

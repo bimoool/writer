@@ -56,7 +56,7 @@ async function journey() {
   r.ok(await page.locator('[data-block-text] [class*="tpl-"]').count() === 0, 'повторное нажатие выключает подсветку');
 
   // Home с документом: «Как это работает» свёрнут в ссылку.
-  await page.getByRole('button', { name: /Назад/ }).click();
+  await page.getByRole('button', { name: /Мои тексты/ }).click();
   const link = page.getByRole('button', { name: 'Как это работает' });
   await link.waitFor();
   r.ok(await page.getByRole('region', { name: 'Как это работает' }).count() === 0 && (await link.getAttribute('aria-expanded')) === 'false', 'Home с документом: блок свёрнут в ссылку');
@@ -139,7 +139,7 @@ async function resultScreen() {
   doc.manualEdits = true;
   await seed(page, BASE, [doc], 'result', doc.id);
   await page.getByRole('heading', { name: 'Готово' }).waitFor();
-  r.ok(await page.getByRole('button', { name: 'На главную' }).count() === 0, 'Result: «На главную» убрана');
+  r.ok(await page.getByRole('button', { name: 'На главную' }).count() === 1 && await page.locator('header').getByRole('button', { name: 'На главную' }).count() === 1, 'Result: отдельной кнопки «На главную» нет, есть только название приложения в шапке с aria-label «На главную»');
   r.ok(await page.getByRole('button', { name: 'Новый текст' }).count() === 1 && await page.getByRole('button', { name: 'Пройти заново' }).count() === 1, 'Result: две кнопки «Новый текст» и «Пройти заново»');
   r.ok(await page.getByText(/Главред|glvrd/i).count() === 0, 'Result: Главреда нет');
   // Иерархия: «Скопировать» основная (залита), «Новый текст» контурная, «Пройти заново» контурная и тише всех.

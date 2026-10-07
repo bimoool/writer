@@ -365,6 +365,49 @@ describe('ошибки записи не теряют текст', () => {
     expect(useApp.getState().docs).toHaveLength(2);
   });
 
+  it('«Начать заново» посреди сессии: копия с пустым листом и теми же блоками (с ручными разрезами), старый документ не меняется', async () => {
+    const st = useApp.getState();
+    const doc = st.createDocument(APPENDIX_A, { title: 'Текст' });
+    const b0 = doc.blocks[0]!;
+    // ручной разрез, затем прогресс: один блок готов, другой в работе
+    st.updateDoc(doc.id, (d) => cutDocBlock({ ...d, manualEdits: true }, 0, cutGaps(b0.sourceText, 'ru', b0.keyphrases)[0]?.end ?? 0, () => crypto.randomUUID()));
+    useApp.getState().updateDoc(doc.id, (d) => ({
+      ...d,
+      currentIndex: 1,
+      blocks: d.blocks.map((b, i) => (i === 0 ? { ...b, status: 'done' as const, userText: 'мой текст', typedChars: 9, activeMs: 1000 } : i === 1 ? { ...b, status: 'writing' as const, userText: 'начал' } : b)),
+    }));
+    const before = structuredClone(useApp.getState().docs.find((d) => d.id === doc.id)!);
+    const copy = useApp.getState().restartDocument(doc.id, '(ещё раз)')!;
+    const s = useApp.getState();
+    expect([s.screen, s.currentDocId]).toEqual(['session', copy.id]);
+    expect(s.docs.find((d) => d.id === doc.id)).toEqual(before);
+    const fresh = s.docs.find((d) => d.id === copy.id)!;
+    expect(fresh.blocks).toHaveLength(before.blocks.length);
+    expect(fresh.blocks.map((b) => b.sourceText)).toEqual(before.blocks.map((b) => b.sourceText));
+    expect(fresh.blocks.every((b) => b.status === 'pending' && b.userText === '' && b.typedChars === 0 && b.activeMs === 0)).toBe(true);
+    expect(fresh.blocks.some((b) => before.blocks.some((o) => o.id === b.id))).toBe(false);
+    expect(fresh.manualEdits).toBe(true);
+    expect(fresh.currentIndex).toBe(0);
+  });
+
+  it('startNewText: Home с фокусом в поле вставки, документ остаётся в списке', () => {
+    const st = useApp.getState();
+    const doc = st.createDocument(APPENDIX_A, { title: 'Текст' });
+    st.openDocument(doc.id, 'split');
+    useApp.getState().startNewText();
+    const s = useApp.getState();
+    expect([s.screen, s.currentDocId, s.pasteFocusRequested]).toEqual(['home', null, true]);
+    expect(s.docs.some((d) => d.id === doc.id)).toBe(true);
+  });
+
+  it('cutIntroSeen хранится в настройках и переживает перезагрузку', async () => {
+    expect(useApp.getState().settings.cutIntroSeen).toBe(false);
+    useApp.getState().setSettings({ cutIntroSeen: true });
+    await new Promise((r) => setTimeout(r, 100));
+    await reload();
+    expect(useApp.getState().settings.cutIntroSeen).toBe(true);
+  });
+
   it('hintsIntroSeen хранится в настройках и переживает перезагрузку', async () => {
     expect(useApp.getState().settings.hintsIntroSeen).toBe(false);
     useApp.getState().setSettings({ hintsIntroSeen: true });

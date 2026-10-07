@@ -22,6 +22,9 @@ const MODES: { mode: PressureMode; label: string; note: string }[] = [
   { mode: 'kamikaze', label: ru.settings.pressureKamikaze, note: ru.settings.kamikazeNote },
 ];
 
+const navButton =
+  'min-h-10 rounded-surface border border-line px-3 text-ui text-text transition-colors duration-[120ms] hover:border-ink disabled:opacity-50';
+
 const FOCUSABLE = 'button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 /**
@@ -122,6 +125,13 @@ function Dialog() {
   }, []);
 
   const set = useApp.getState().setSettings;
+  const screen = useApp((s) => s.screen);
+  const currentDocId = useApp((s) => s.currentDocId);
+  // Переход закрывает панель без возврата фокуса: прежний элемент исчезает вместе с экраном. Данные уже сохраняются сами.
+  const navigate = (to: () => void) => {
+    useApp.getState().setSettingsOpen(false);
+    to();
+  };
   const off = settings.pressure === 'off';
 
   return (
@@ -139,6 +149,30 @@ function Dialog() {
         <h2 id={`${id}-title`} className="text-h2">
           {ru.settings.title}
         </h2>
+
+        {screen !== 'home' && (
+          <section aria-labelledby={`${id}-nav`} data-settings-nav className="mt-3">
+            <h3 id={`${id}-nav`} className="text-meta text-text-dim">
+              {ru.settings.nav}
+            </h3>
+            <div className="mt-1 flex flex-wrap gap-2">
+              <button type="button" className={navButton} onClick={() => navigate(() => useApp.getState().go('home'))}>
+                {ru.settings.navToList}
+              </button>
+              <button type="button" className={navButton} onClick={() => navigate(() => useApp.getState().startNewText())}>
+                {ru.settings.navNewText}
+              </button>
+              <button
+                type="button"
+                className={navButton}
+                disabled={!currentDocId}
+                onClick={() => navigate(() => currentDocId && useApp.getState().restartDocument(currentDocId, ru.result.retrySuffix))}
+              >
+                {ru.settings.navRetry}
+              </button>
+            </div>
+          </section>
+        )}
 
         <Segmented legend={ru.theme.label} name={`${id}-theme`} value={settings.theme} options={THEMES.map((t) => ({ value: t, label: ru.theme[t] }))} onChange={(theme) => set({ theme })} />
 

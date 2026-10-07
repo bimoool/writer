@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { BlockItem } from '../components/split/BlockItem';
 import { TemplatesBar } from '../components/split/TemplatesBar';
 import { SizeToggle } from '../components/split/SizeToggle';
 import { useSelectionCapture, type BlockSelection } from '../components/split/selection';
 import { ru } from '../i18n/ru';
-import { addKeyphrase, cutDocBlock, cutModeTarget, hasProgress, mergeDocBlocks, removeKeyphraseAt, resegmentDoc, setKeyphrases } from '../lib/blocks';
+import { addKeyphrase, cutDocBlock, cutFocusTarget, hasCutPoint, hasProgress, mergeDocBlocks, removeKeyphraseAt, resegmentDoc, setKeyphrases } from '../lib/blocks';
+import { CUT_FLASH_MS, CUT_NOTICE_MS, cutModeReducer, initialCutMode } from '../lib/cutMode';
 import type { TemplateSpot } from '../lib/sourceTemplates';
 import { detectLang } from '../lib/tokens';
 import type { BlockSize, Doc } from '../lib/types';
@@ -29,18 +30,14 @@ export function Split() {
   const doc = useApp((s) => s.docs.find((d) => d.id === s.currentDocId));
   const heading = useRef<HTMLHeadingElement>(null);
   const confirmNo = useRef<HTMLButtonElement>(null);
-  const focusAfter = useRef<{ id: string; action: 'merge' | 'cut' | 'row' } | null>(null);
+  const modeButton = useRef<HTMLButtonElement>(null);
+  const focusAfter = useRef<{ id: string; to: 'merge' | 'text' | 'row-first' | 'row-last' | 'mode-button' } | null>(null);
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   /** Фраза, убранная только что: слово, выделенное вторым кликом двойного щелчка, новой фразой не становится. */
   const justRemoved = useRef<{ blockId: string; start: number; end: number; at: number } | null>(null);
 
-  const [cutBlockId, setCutBlockState] = useState<string | null>(null);
-  // Режим разреза читается и из обработчиков, созданных до последней отрисовки: ссылка всегда актуальна.
-  const cutBlockRef = useRef<string | null>(null);
-  const setCutBlockId = (id: string | null) => {
-    cutBlockRef.current = id;
-    setCutBlockState(id);
-  };
+  // Один режим разреза на весь экран (SPEC §3.2): включён, пока пользователь сам не выйдет.
+  const [cut, dispatchCut] = useReducer(cutModeReducer, initialCutMode);
   const [confirmSize, setConfirmSize] = useState<BlockSize | null>(null);
   const [notice, setNotice] = useState<{ blockId: string; text: string } | null>(null);
   // Стек отмены только в памяти: уход с экрана размонтирует компонент и стек пропадает.
@@ -49,6 +46,8 @@ export function Split() {
 
   const lang = useMemo(() => detectLang(doc?.source ?? ''), [doc?.source]);
   const editable = !!doc && !hasProgress(doc);
+  const blocks = doc?.blocks;
+  const canCut = useMemo(() => !!blocks && hasCutPoint(blocks, lang), [blocks, lang]);
   // Подсветка шаблонов исходника по переключателю в TemplatesBar. Состояние здесь только для передачи в блоки:
   // сам расчёт живёт в TemplatesBar и список блоков при его завершении не перерисовывается.
   const [templateSpots, setTemplateSpots] = useState<Map<string, TemplateSpot[]> | null>(null);
@@ -61,24 +60,37 @@ export function Split() {
     heading.current?.focus();
   }, []);
 
-  // После склейки и разреза фокус возвращается на ту же кнопку: блок сохраняет id, так что она на месте.
-  // Включение режима разреза переводит фокус на первую точку разреза: кнопка «Разрезать» стоит в DOM после текста,
-  // и без этого Tab ушёл бы из блока.
+  // После склейки и разреза фокус остаётся рядом с местом правки: блок сохраняет id, так что его кнопки на месте.
+  // Без прокрутки: экран не прыгает.
   useEffect(() => {
     const target = focusAfter.current;
     if (!target) return;
     focusAfter.current = null;
     const root = document.querySelector<HTMLElement>(`[data-block-id="${target.id}"]`);
     const find = (selector: string) => root?.querySelector<HTMLElement>(selector);
-    const other = target.action === 'merge' ? 'cut' : 'merge';
+    const rows = root?.querySelectorAll<HTMLElement>('.cut-row');
     const el =
-      (target.action === 'row' ? find('.cut-row') : null) ??
-      find(`[data-action="${target.action === 'row' ? 'cut' : target.action}"]`) ??
-      find(`[data-action="${other}"]`) ??
-      find('[data-block-text]');
-    // Без прокрутки: после разреза экран остаётся на месте, фокус уходит к месту разреза или к кнопке блока.
+      target.to === 'mode-button'
+        ? modeButton.current
+        : target.to === 'row-first'
+          ? rows?.[0]
+          : target.to === 'row-last'
+            ? rows?.[rows.length - 1]
+            : (target.to === 'merge' ? find('[data-action="merge"]') ?? find('[data-action="select"]') : null) ?? find('[data-block-text]');
     el?.focus({ preventScroll: true });
-  }, [doc?.blocks, cutBlockId]);
+  }, [doc?.blocks]);
+
+  // Сообщение о разрезе и подсветка правой части гаснут сами.
+  useEffect(() => {
+    if (cut.notice === null) return;
+    const t = setTimeout(() => dispatchCut({ type: 'clearNotice' }), CUT_NOTICE_MS);
+    return () => clearTimeout(t);
+  }, [cut.notice]);
+  useEffect(() => {
+    if (cut.flashId === null) return;
+    const t = setTimeout(() => dispatchCut({ type: 'clearFlash' }), CUT_FLASH_MS);
+    return () => clearTimeout(t);
+  }, [cut.flashId]);
 
   useEffect(() => {
     if (confirmSize) confirmNo.current?.focus();
@@ -123,17 +135,32 @@ export function Split() {
     if (!snap || !d) return;
     useApp.getState().updateDoc(d.id, (x) => restoreSnapshot(x, snap));
     setUndoDepth(undoStack.current.length);
-    setCutBlockId(null);
+    // Режим разреза остаётся включённым, сообщение о разрезе и подсветка гаснут.
+    dispatchCut({ type: 'undo' });
     setConfirmSize(null);
     // Кнопка гаснет, когда отменять нечего: фокус не должен пропасть.
     if (undoStack.current.length === 0) heading.current?.focus();
   };
   const undoRef = useRef(undo);
   const confirmRef = useRef(confirmSize);
+  const cutOnRef = useRef(cut.on);
   useEffect(() => {
     undoRef.current = undo;
     confirmRef.current = confirmSize;
+    cutOnRef.current = cut.on;
   });
+
+  // Esc выходит из режима разреза (если ему не нашлось другого дела: выбор слов, вопрос о размере, панель настроек).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented || !cutOnRef.current || confirmRef.current || useApp.getState().settingsOpen) return;
+      e.preventDefault();
+      dispatchCut({ type: 'exit' });
+      modeButton.current?.focus({ preventScroll: true });
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   // Ctrl/Cmd+Z и Ctrl/Cmd+Enter по физической клавише: работают и в другой раскладке.
   useEffect(() => {
@@ -176,8 +203,17 @@ export function Split() {
 
   const applySize = (size: BlockSize) => {
     edit((d) => resegmentDoc(d, size, newId));
-    setCutBlockId(null);
+    dispatchCut({ type: 'exit' });
     setConfirmSize(null);
+  };
+  const toggleCutMode = () => {
+    if (cut.on) {
+      dispatchCut({ type: 'exit' });
+      return;
+    }
+    const firstTime = !useApp.getState().settings.cutIntroSeen;
+    if (firstTime) useApp.getState().setSettings({ cutIntroSeen: true });
+    dispatchCut({ type: 'enable', firstTime });
   };
   const requestSize = (size: BlockSize) => {
     if (size === doc.blockSize) return;
@@ -188,7 +224,7 @@ export function Split() {
   return (
     <main>
       {/* Липкая только на широких экранах: на 360px две строки шапки вместе с подвалом закрывали пятую часть экрана. */}
-      <header className="z-10 border-b border-line bg-bg sm:sticky sm:top-0">
+      <header className={`z-10 border-b border-line bg-bg ${cut.on ? '' : 'sm:sticky sm:top-0'}`}>
         <div className="mx-auto flex max-w-[46rem] flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2">
           <button
             type="button"
@@ -198,9 +234,21 @@ export function Split() {
             <span aria-hidden="true">← </span>
             {ru.split.back}
           </button>
+          <button
+            type="button"
+            onClick={() => useApp.getState().startNewText()}
+            className="min-h-10 rounded-surface px-2 text-ui text-text-dim transition-colors duration-[120ms] hover:text-text"
+          >
+            {ru.split.newText}
+          </button>
           <h1 ref={heading} tabIndex={-1} aria-live="polite" className="text-ui font-medium text-text focus:outline-none">
             {ru.split.title(doc.blocks.length)}
           </h1>
+          {/* Сообщение о разрезе рядом с заголовком; регион есть всегда, чтобы его появление объявлялось. */}
+          {/* Место под сообщение занято всегда (отдельная строка): появление текста не сдвигает список блоков. */}
+          <p role="status" aria-live="polite" className="min-h-5 w-full text-meta text-text-dim">
+            {cut.notice !== null ? ru.split.cutDone(cut.notice) : ''}
+          </p>
           <div className="w-full sm:ml-auto sm:w-auto">
             <SizeToggle value={doc.blockSize} disabled={!editable} onChange={requestSize} />
           </div>
@@ -242,6 +290,39 @@ export function Split() {
 
         {doc && <TemplatesBar docId={doc.id} blocks={doc.blocks} onShow={setTemplateSpots} />}
 
+        {editable && (
+          // Закреплена, пока режим включён: подсказка остаётся перед глазами, пока листаешь блоки.
+          <div className={`z-10 -mx-4 bg-bg px-4 py-2 ${cut.on ? 'sticky top-0 border-b border-line' : ''}`}>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <button
+                ref={modeButton}
+                type="button"
+                disabled={!canCut && !cut.on}
+                aria-describedby={!canCut && !cut.on ? 'cut-none' : undefined}
+                onClick={toggleCutMode}
+                className={`min-h-10 rounded-surface border px-4 text-ui font-medium transition-colors duration-[120ms] disabled:opacity-50 ${
+                  cut.on ? 'border-ink bg-ink text-bg hover:bg-ink-hover' : 'border-ink text-ink enabled:hover:bg-surface'
+                }`}
+              >
+                {cut.on ? ru.split.cutModeDone : ru.split.cutMode}
+              </button>
+              {!canCut && !cut.on && (
+                <span id="cut-none" className="text-meta text-text-dim">
+                  {ru.split.cutNone}
+                </span>
+              )}
+            </div>
+            <div role="status" data-cut-hint>
+              {cut.on && (
+                <>
+                  <p className="mt-2 text-meta text-text">{ru.split.cutHint}</p>
+                  {cut.intro && <p className="mt-1 text-meta text-text-dim">{ru.split.cutIntro}</p>}
+                </>
+              )}
+            </div>
+          </div>
+        )}
+
         <ol className="mt-2 list-none">
           {doc.blocks.map((block, i) => (
             <BlockItem
@@ -252,7 +333,8 @@ export function Split() {
               lang={lang}
               editable={editable}
               templates={templateSpots?.get(block.id)}
-              cutMode={cutBlockId === block.id}
+              cutMode={cut.on}
+              flash={cut.flashId === block.id}
               notice={notice?.blockId === block.id ? notice.text : null}
               onRemovePhrase={(pi) => {
                 const at = indexOf(block.id);
@@ -264,26 +346,25 @@ export function Split() {
               onMerge={() => {
                 const at = indexOf(block.id);
                 if (at < 0) return;
-                focusAfter.current = { id: block.id, action: 'merge' };
+                focusAfter.current = { id: block.id, to: 'merge' };
                 edit((d) => mergeDocBlocks(d, at));
-              }}
-              onToggleCut={() => {
-                const enabling = cutBlockRef.current !== block.id;
-                focusAfter.current = { id: block.id, action: enabling ? 'row' : 'cut' };
-                setCutBlockId(enabling ? block.id : null);
               }}
               onAddPhrase={(range) => addPhrase(block.id, range.start, range.end)}
               onCut={(offset) => {
                 const at = indexOf(block.id);
                 if (at < 0) return;
-                // Режим открыт у этого блока: он остаётся открытым, чтобы резать дальше. Клик мышью по месту
-                // разреза без режима режим не включает, а режим другого блока не трогает.
-                const keepMode = cutBlockRef.current === block.id;
                 edit((d) => cutDocBlock(d, at, offset, newId));
-                const doc = currentDoc();
-                const target = keepMode && doc ? cutModeTarget(doc, block.id, lang) : null;
-                focusAfter.current = target ? { id: target, action: 'row' } : { id: block.id, action: 'cut' };
-                if (keepMode) setCutBlockId(target);
+                const after = currentDoc();
+                const right = after?.blocks[(after?.blocks.findIndex((b) => b.id === block.id) ?? -1) + 1];
+                if (!after || !right) return;
+                dispatchCut({ type: 'cut', rightId: right.id, total: after.blocks.length });
+                // В режиме фокус идёт к ближайшей точке разреза (вниз по тексту), без режима (разрез мышью) остаётся в блоке.
+                const next = cut.on ? cutFocusTarget(after, block.id, lang) : null;
+                focusAfter.current = next
+                  ? { id: next.blockId, to: next.gap === 'first' ? 'row-first' : 'row-last' }
+                  : cut.on
+                    ? { id: block.id, to: 'mode-button' }
+                    : { id: block.id, to: 'text' };
               }}
             />
           ))}
@@ -316,6 +397,10 @@ export function Split() {
             onClick={undo}
             className="-ml-2 min-h-10 rounded-surface px-2 text-ui text-text-dim transition-colors duration-[120ms] enabled:hover:text-text disabled:opacity-50"
           >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="mr-1.5 inline-block align-[-3px]">
+              <path d="M9 14 4 9l5-5" />
+              <path d="M4 9h10a6 6 0 0 1 0 12h-3" />
+            </svg>
             {ru.split.undo}
           </button>
           <div className="ml-auto flex items-center gap-3">

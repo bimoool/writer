@@ -56,6 +56,9 @@ function Stage({ doc, index, onEdit }: StageProps) {
   const editing = index < frontierIndex(doc);
   const settings = useApp((s) => s.settings);
   const settingsOpen = useApp((s) => s.settingsOpen);
+  // Экранное подтверждение «Начать заново» (не window.confirm): пока открыто, давление на паузе, клавиши сессии молчат.
+  const [restartOpen, setRestartOpen] = useState(false);
+  const restartOpener = useRef<HTMLButtonElement>(null);
   const lang = useMemo(() => detectLang(doc.source), [doc.source]);
   const reducedMotion = useReducedMotion();
 
@@ -131,7 +134,7 @@ function Stage({ doc, index, onEdit }: StageProps) {
     mode: effectiveMode(settings.pressure, block.status),
     delaySec: settings.pressureDelaySec,
     active: phase === 'writing',
-    paused: { hint: open[1] || open[2] || open[3], peek: peek !== 'off', modal: settingsOpen },
+    paused: { hint: open[1] || open[2] || open[3], peek: peek !== 'off', modal: settingsOpen || restartOpen },
     field,
     vignette,
     lang,
@@ -224,9 +227,9 @@ function Stage({ doc, index, onEdit }: StageProps) {
   };
 
   // Свежие обработчики для слушателей, которые подписываются один раз.
-  const api = useRef({ phase, remember, done, flushActive, toggleLevel, beginPeek, finishPeek, closeHints });
+  const api = useRef({ phase, remember, done, flushActive, toggleLevel, beginPeek, finishPeek, closeHints, restartOpen });
   useEffect(() => {
-    api.current = { phase, remember, done, flushActive, toggleLevel, beginPeek, finishPeek, closeHints };
+    api.current = { phase, remember, done, flushActive, toggleLevel, beginPeek, finishPeek, closeHints, restartOpen };
   });
 
   // --- растворение -------------------------------------------------------------------------
@@ -317,7 +320,7 @@ function Stage({ doc, index, onEdit }: StageProps) {
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       // Пока открыта панель настроек, клавиши принадлежат ей.
-      if (e.repeat || useApp.getState().settingsOpen) return;
+      if (e.repeat || useApp.getState().settingsOpen || api.current.restartOpen) return;
       const bare = !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey;
       if (e.code === 'Space' && bare && api.current.phase === 'reading') {
         // На другой кнопке (например, «К списку») пробел остаётся её нажатием.
@@ -376,7 +379,13 @@ function Stage({ doc, index, onEdit }: StageProps) {
       </div>
 
       <div className="session-top flex shrink-0 items-start justify-between gap-2 px-4 pt-2">
-        <span className="flex min-h-10 shrink-0 items-center whitespace-nowrap text-meta tabular-nums text-text-dim">{progress}</span>
+        <span className="flex min-h-10 shrink-0 items-center gap-2 whitespace-nowrap text-meta text-text-dim">
+          <span className="tabular-nums">{progress}</span>
+          {/* Где я: то же слово, что в шапке других экранов. Для скринридера есть sr-only h1. */}
+          <span aria-hidden="true" className="text-text-ghost">
+            {ru.screens.session}
+          </span>
+        </span>
         <div className="session-chrome -mr-2 flex min-w-0 flex-wrap justify-end" data-hidden={!chromeVisible}>
           {index > 0 && (
             <button type="button" className={quiet} onClick={() => leave(() => onEdit(index - 1))}>
@@ -385,6 +394,9 @@ function Stage({ doc, index, onEdit }: StageProps) {
           )}
           <button type="button" className={quiet} onClick={() => leave(() => useApp.getState().go('home'))}>
             {ru.session.toList}
+          </button>
+          <button ref={restartOpener} type="button" className={quiet} aria-haspopup="dialog" onClick={() => setRestartOpen(true)}>
+            {ru.session.restart}
           </button>
         </div>
       </div>
@@ -471,22 +483,7 @@ function Stage({ doc, index, onEdit }: StageProps) {
                 intro={!settings.hintsIntroSeen}
               />
               <div className="mt-2 flex flex-wrap items-center gap-2 sm:mt-0 sm:gap-4">
-                {/* Настройки без закрытия клавиатуры: верхняя панель на низком экране скрыта. Кнопка не берёт фокус у поля. */}
-                <button
-                  type="button"
-                  aria-label={ru.settings.open}
-                  aria-haspopup="dialog"
-                  className="flex size-12 shrink-0 items-center justify-center rounded-surface border border-line text-text-dim transition-colors duration-[120ms] hover:text-text"
-                  onPointerDown={keepFocus}
-                  onMouseDown={keepFocus}
-                  onClick={() => useApp.getState().setSettingsOpen(true)}
-                >
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true">
-                    <path d="M4 7h10M18 7h2M4 17h2M10 17h10" />
-                    <circle cx="16" cy="7" r="2" />
-                    <circle cx="8" cy="17" r="2" />
-                  </svg>
-                </button>
+                <SettingsButton />
                 <button type="button" className={`${primary} grow sm:grow-0`} onPointerDown={keepFocus} onMouseDown={keepFocus} onClick={done}>
                   {ru.session.done}
                 </button>
@@ -495,6 +492,7 @@ function Stage({ doc, index, onEdit }: StageProps) {
             </>
           ) : (
             <>
+              <SettingsButton />
               <button
                 ref={rememberButton}
                 type="button"
@@ -506,6 +504,77 @@ function Stage({ doc, index, onEdit }: StageProps) {
               <span className={`kbd-hint text-meta text-text-dim ${phase === 'dissolving' ? 'invisible' : ''}`}>{ru.session.rememberKey}</span>
             </>
           )}
+        </div>
+      </div>
+      {restartOpen && (
+        <RestartDialog
+          onCancel={() => {
+            setRestartOpen(false);
+            restartOpener.current?.focus({ preventScroll: true });
+          }}
+          onConfirm={() => leave(() => useApp.getState().restartDocument(doc.id, ru.result.retrySuffix))}
+        />
+      )}
+    </div>
+  );
+}
+
+/** Кнопка-значок настроек: не забирает фокус у поля письма, чтобы не закрылась экранная клавиатура. Есть и в чтении, и в письме. */
+function SettingsButton() {
+  return (
+    <button
+      type="button"
+      aria-label={ru.settings.open}
+      aria-haspopup="dialog"
+      className="flex size-12 shrink-0 items-center justify-center rounded-surface border border-line text-text-dim transition-colors duration-[120ms] hover:text-text"
+      onPointerDown={keepFocus}
+      onMouseDown={keepFocus}
+      onClick={() => useApp.getState().setSettingsOpen(true)}
+    >
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true">
+        <path d="M4 7h10M18 7h2M4 17h2M10 17h10" />
+        <circle cx="16" cy="7" r="2" />
+        <circle cx="8" cy="17" r="2" />
+      </svg>
+    </button>
+  );
+}
+
+/** Подтверждение «Начать заново»: копия текста с пустым листом. Фокус на «Отмена», Esc отменяет, Tab ходит по кругу. */
+function RestartDialog({ onCancel, onConfirm }: { onCancel: () => void; onConfirm: () => void }) {
+  const cancel = useRef<HTMLButtonElement>(null);
+  const confirm = useRef<HTMLButtonElement>(null);
+  useEffect(() => cancel.current?.focus({ preventScroll: true }), []);
+  return (
+    <div
+      className="absolute inset-0 z-30 flex items-center justify-center bg-bg/85 px-4"
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          e.stopPropagation();
+          onCancel();
+        } else if (e.key === 'Tab') {
+          const first = confirm.current;
+          const last = cancel.current;
+          if (e.shiftKey && document.activeElement === first) {
+            e.preventDefault();
+            last?.focus();
+          } else if (!e.shiftKey && document.activeElement === last) {
+            e.preventDefault();
+            first?.focus();
+          }
+        }
+      }}
+    >
+      <div role="dialog" aria-modal="true" aria-label={ru.session.restart} className="w-full max-w-[26rem] rounded-surface border border-line bg-surface p-4">
+        <p className="text-ui text-text">{ru.session.restartText}</p>
+        <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2">
+          <button ref={confirm} type="button" onClick={onConfirm} className="min-h-10 rounded-surface bg-ink px-4 text-ui font-medium text-bg transition-colors duration-[120ms] hover:bg-ink-hover">
+            {ru.session.restartYes}
+          </button>
+          <button ref={cancel} type="button" onClick={onCancel} className="min-h-10 rounded-surface border border-line px-4 text-ui text-text transition-colors duration-[120ms] hover:border-ink">
+            {ru.session.restartNo}
+          </button>
         </div>
       </div>
     </div>

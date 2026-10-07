@@ -36,6 +36,11 @@ interface AppState {
   openDocument(id: string | null, screen?: Screen): void;
   /** «Пройти заново»: копия документа без прогресса, сессия открывается на первом блоке. Старый документ остаётся. */
   restartDocument(id: string, titleSuffix: string): Doc | null;
+  /** «Новый текст»: Home с фокусом в поле вставки, текущий документ закрывается (сам он остаётся в списке). */
+  startNewText(): void;
+  /** Result в режиме правки (SPEC §15.5): нужен шапке, чтобы назвать экран «Правка». */
+  editMode: boolean;
+  setEditMode(on: boolean): void;
   /** Home откроется с фокусом в поле вставки (флаг сбрасывает сам Home). */
   pasteFocusRequested: boolean;
   requestPasteFocus(on: boolean): void;
@@ -177,6 +182,16 @@ export const useApp = create<AppState>((set, get) => {
       saver?.schedule(doc);
       persistSession();
       return doc;
+    },
+
+    startNewText() {
+      set({ pasteFocusRequested: true });
+      get().openDocument(null, 'home');
+    },
+
+    editMode: false,
+    setEditMode(on) {
+      set({ editMode: on });
     },
 
     pasteFocusRequested: false,

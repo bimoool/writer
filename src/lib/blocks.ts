@@ -153,18 +153,25 @@ export function cutDocBlock(doc: Doc, index: number, offset: number, newId: () =
   return touch(doc, withTopUp(doc, blocks, [index, index + 1]));
 }
 
+/** Есть ли хоть одна точка разреза (с учётом подсвеченных фраз). Нет: режим разреза включать не к чему. */
+export function hasCutPoint(blocks: Block[], lang: Lang): boolean {
+  return blocks.some((b) => cutGaps(b.sourceText, lang, b.keyphrases).length > 0);
+}
+
 /**
- * Блок, в котором после разреза остаётся открытым режим «Разрезать» (SPEC §3.2): тот же блок (левая часть сохраняет id),
- * а если в нём точек разреза больше нет, то правая часть. null, если резать дальше негде: режим закрывается.
+ * Куда уходит фокус после разреза (SPEC §3.2): на первую точку разреза правой части, чтобы резать дальше вниз;
+ * если в ней точек нет, на последнюю точку левой части; если нет и там, null (фокус остаётся на кнопке режима).
+ * `leftId` — id левой части (она сохраняет id блока), правая часть идёт следом.
  */
-export function cutModeTarget(doc: Doc, blockId: string, lang: Lang = detectLang(doc.source)): string | null {
-  const at = doc.blocks.findIndex((b) => b.id === blockId);
+export function cutFocusTarget(doc: Doc, leftId: string, lang: Lang = detectLang(doc.source)): { blockId: string; gap: 'first' | 'last' } | null {
+  const at = doc.blocks.findIndex((b) => b.id === leftId);
   if (at < 0) return null;
-  const hasGaps = (b: Block | undefined) => !!b && cutGaps(b.sourceText, lang, b.keyphrases).length > 0;
-  const same = doc.blocks[at];
+  const has = (b: Block | undefined) => !!b && cutGaps(b.sourceText, lang, b.keyphrases).length > 0;
+  const left = doc.blocks[at];
   const right = doc.blocks[at + 1];
-  if (hasGaps(same)) return blockId;
-  return hasGaps(right) ? right!.id : null;
+  if (has(right)) return { blockId: right!.id, gap: 'first' };
+  if (has(left)) return { blockId: leftId, gap: 'last' };
+  return null;
 }
 
 /** Пересчёт разбивки с нуля: все ручные правки теряются. */

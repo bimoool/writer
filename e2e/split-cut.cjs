@@ -1,29 +1,39 @@
 /*
- * Ручная разрезка блоков на Split (SPEC §3.2) в Chromium: мышь, касание, клавиатура.
+ * Режим разреза на Split (SPEC §3.2) в Chromium: мышь, касание, клавиатура.
+ * Один общий режим на экран: кнопка «Режим разреза» / «Готово», во всех блоках сразу все точки разреза.
  * Запуск: npm run build && npx vite preview --port 4173 --host 127.0.0.1 &
- *         node e2e/split-cut.cjs <папка для скриншотов> [адрес] [режимы через запятую: mouse,touch,keyboard]
- * Код выхода не нулевой, если хоть одна проверка упала.
+ *         PLAYWRIGHT_PATH=<путь к playwright> node e2e/split-cut.cjs <папка для скриншотов> [адрес] [режимы через запятую: mouse,touch,keyboard]
+ * Код выхода не нулевой, если хоть одна проверка упала. Скриншоты: 360 px, тёмная тема.
  */
 const fs = require('fs');
 const { chromium } = require(process.env.PLAYWRIGHT_PATH || 'playwright');
-const { readDocs, reporter } = require('./lib.cjs');
+const { readDocs, makeDoc, seed, reporter } = require('./lib.cjs');
 
 const OUT = process.argv[2] || 'e2e-out';
-const BASE = process.argv[3] || 'http://127.0.0.1:4173/';
+const BASE = process.argv[3] && !process.argv[3].startsWith('--') ? process.argv[3] : 'http://127.0.0.1:4173/';
 const MODES = (process.argv[4] || 'mouse,touch,keyboard').split(',');
 fs.mkdirSync(OUT, { recursive: true });
 const r = reporter();
 
-/** 10 абзацев по 3 предложения: каждый становится отдельным блоком, в каждом две точки разреза. */
-const TOPICS = ['река', 'гора', 'озеро', 'лес', 'поле', 'город', 'мост', 'остров', 'долина', 'берег'];
-const SOURCE = TOPICS.map(
-  (t, i) =>
-    `Абзац номер ${i + 1} рассказывает про ${t} и её необычный характер в разные времена года. ` +
-    `Местные жители давно привыкли к тому, что ${t} меняется каждый сезон. ` +
-    `Путешественники любят возвращаться туда снова, чтобы увидеть новые краски.`,
+/** 8 абзацев по 2–3 предложения: каждый становится отдельным блоком. Точек разреза: 2+1+1+1+2+1+1+1 = 10. */
+const SENTENCES = [3, 2, 2, 2, 3, 2, 2, 2];
+const TOPICS = ['река', 'гора', 'озеро', 'лес', 'поле', 'город', 'мост', 'остров'];
+const SOURCE = SENTENCES.map((n, i) =>
+  Array.from({ length: n }, (_, j) => `Абзац ${i + 1} предложение ${j + 1} про ${TOPICS[i]} и её характер в разные времена.`).join(' '),
 ).join('\n\n');
+const CUT_POINTS = SENTENCES.reduce((s, n) => s + n - 1, 0);
 
-async function open(mode) {
+const HINT = 'Нажми на кнопку между предложениями, чтобы разрезать блок';
+const INTRO = 'Режем по границам предложений. Исправить можно кнопкой «Отменить действие»';
+
+/** Документ со скриншота пользователя: 3 блока, первый «В современном мире…» из двух предложений. */
+const SHOT_SOURCES = [
+  'В современном мире умение эффективно управлять своим временем становится не просто полезным навыком, а настоящей необходимостью. Исследования показывают, что люди, которые планируют свой день заранее, выполняют на 25% больше задач.',
+  'Одним из наиболее популярных подходов является техника Pomodoro, разработанная Франческо Чирилло.',
+  'Её суть заключается в том, чтобы работать короткими интервалами по 25 минут.',
+];
+
+async function open(mode, { doc } = {}) {
   const browser = await chromium.launch();
   const touch = mode === 'touch';
   const ctx = await browser.newContext({ viewport: { width: 360, height: 740 }, deviceScaleFactor: 2, hasTouch: touch, isMobile: touch, colorScheme: 'dark' });
@@ -31,11 +41,14 @@ async function open(mode) {
   const page = await ctx.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(String(e)));
-  await page.goto(BASE);
-  await page.locator('textarea').fill(SOURCE);
-  await page.getByRole('button', { name: 'Начать', exact: true }).click();
+  if (doc) await seed(page, BASE, [doc], 'split', doc.id);
+  else {
+    await page.goto(BASE);
+    await page.locator('textarea').fill(SOURCE);
+    await page.getByRole('button', { name: 'Начать', exact: true }).click();
+  }
   await page.locator('li[data-block-id]').first().waitFor();
-  return { browser, page, errors, mode };
+  return { browser, ctx, page, errors, mode };
 }
 
 const items = (page) => page.locator('li[data-block-id]');
@@ -49,74 +62,53 @@ const texts = (page) =>
       return copy.textContent.replace(/\s+/g, ' ').trim();
     }),
   );
-const markers = (page) => items(page).evaluateAll((els) => els.map((e) => [...e.querySelectorAll('.marker')].map((m) => m.textContent)));
 const ids = (page) => items(page).evaluateAll((els) => els.map((e) => e.dataset.blockId));
 const title = (page) => page.locator('h1').innerText();
 const flushed = (page) => page.waitForTimeout(900);
 const stored = async (page) => (await readDocs(page))[0];
-const storedTexts = async (page) => (await stored(page)).blocks.map((b) => b.sourceText);
+const rows = (page) => page.locator('.cut-row');
+const toggle = (page, name) => page.getByRole('button', { name, exact: true });
+const modeOn = async (page) => (await toggle(page, 'Готово').count()) === 1;
+const status = (page) => page.getByRole('status').filter({ hasText: 'Блок разрезан' });
 
-/** Режет блок `i` (номер в текущем списке) в первой доступной точке. Возвращает, сколько блоков должно стать. */
-async function cut(ctx, i, which = 0) {
-  const { page, mode } = ctx;
-  const li = items(page).nth(i);
-  await li.scrollIntoViewIfNeeded();
-  if (mode === 'mouse') {
-    // content-visibility: блоки вне экрана меняют высоту, когда до них доскроллили: ждём, пока позиция устоится.
-    const gap = li.locator('.cut-gap').nth(which);
-    let pos = null;
-    for (let k = 0; k < 20; k++) {
-      const next = await gap.evaluate((el) => {
-        const rect = el.getClientRects()[0];
-        return { x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2) };
-      });
-      if (pos && pos.x === next.x && pos.y === next.y) break;
-      pos = next;
-      await page.waitForTimeout(100);
-    }
-    await page.mouse.move(pos.x, pos.y);
-    await page.mouse.click(pos.x, pos.y);
-  } else if (mode === 'touch') {
-    const toggle = li.locator('[data-action="cut"]');
-    if ((await toggle.getAttribute('aria-pressed')) !== 'true') await toggle.tap();
-    await li.locator('.cut-row').nth(which).tap();
-  } else {
-    const toggle = li.locator('[data-action="cut"]');
-    if ((await toggle.getAttribute('aria-pressed')) !== 'true') {
-      await toggle.focus();
-      await page.keyboard.press('Enter');
-    }
-    await li.locator('.cut-row').nth(which).focus();
-    await page.keyboard.press('Enter');
+/** Нажатие так, как его делает пользователь режима: щелчок, касание или фокус и Enter. */
+async function press(ctx, locator) {
+  if (ctx.mode === 'mouse') await locator.click();
+  else if (ctx.mode === 'touch') await locator.tap();
+  else {
+    await locator.focus();
+    await ctx.page.keyboard.press('Enter');
   }
-  await page.waitForTimeout(150);
+  await ctx.page.waitForTimeout(120);
+}
+const enable = (ctx) => press(ctx, toggle(ctx.page, 'Режим разреза'));
+const finishMode = (ctx) => press(ctx, toggle(ctx.page, 'Готово'));
+
+/** Блоки вне экрана меняют высоту, когда до них доскроллили (content-visibility): ждём, пока положение устоится. */
+async function settle(locator) {
+  await locator.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+  let prev = null;
+  for (let k = 0; k < 20; k++) {
+    const y = await locator.evaluate((el) => Math.round(el.getBoundingClientRect().top + scrollY));
+    if (y === prev) return;
+    prev = y;
+    await locator.page().waitForTimeout(80);
+  }
 }
 
-const closeCutMode = async (ctx) => {
-  const open = ctx.page.locator('[data-action="cut"][aria-pressed="true"]');
-  while ((await open.count()) > 0) {
-    await open.first().click();
-    await ctx.page.waitForTimeout(50);
-  }
-};
-
-/** Три снимка 360 px: у первого, среднего и последнего разреза (блоки вне экрана не рисуются, полный кадр был бы пустым). */
-const shoot = async (page, name) => {
-  const n = await count(page);
-  for (const [tag, i] of [['first', 1], ['middle', Math.floor(n / 2) + 1], ['last', n - 1]]) {
-    await items(page).nth(i).scrollIntoViewIfNeeded();
-    await page.waitForTimeout(400);
-    await page.screenshot({ path: `${OUT}/${name}-${tag}-360.png` });
-  }
-};
+/** Нажимает на точку разреза `which` блока `li` (режим уже включён). */
+async function cutRow(ctx, li, which = 0) {
+  await settle(li);
+  await press(ctx, li.locator('.cut-row').nth(which));
+}
 
 const reload = async (page) => {
   await page.reload();
   await page.locator('li[data-block-id]').first().waitFor();
 };
 
-async function run(name, mode, body) {
-  const ctx = await open(mode);
+async function run(name, mode, body, opts) {
+  const ctx = await open(mode, opts);
   const label = `[${mode}] ${name}`;
   try {
     await body(ctx, (cond, msg) => r.ok(cond, `${label}: ${msg}`));
@@ -130,286 +122,264 @@ async function run(name, mode, body) {
 
 (async () => {
   for (const mode of MODES) {
-    // а) первый, средний, последний, не выходя с экрана.
-    await run('а) три разреза: первый, средний, последний', mode, async (ctx, ok) => {
+    // а) основной сценарий: 4 блока подряд и правая часть первого ещё раз. +5, перезагрузка, «Начать».
+    await run('а) режим, разрезы блоков 1, 3, 5, 8 и правой части блока 1', mode, async (ctx, ok) => {
       const { page } = ctx;
       const n0 = await count(page);
-      ok(n0 >= 8, `исходно ${n0} блоков (нужно 8+)`);
+      ok(n0 === 8, `исходно ${n0} блоков (нужно 8)`);
       const before = await texts(page);
-      const mid = Math.floor(n0 / 2);
-      // Режем с конца, чтобы номера не съезжали, а затем проверяем по тексту.
-      await cut(ctx, 0);
-      await cut(ctx, mid + 1);
-      await cut(ctx, (await count(page)) - 1); // последний блок
-      const n1 = await count(page);
-      ok(n1 === n0 + 3, `блоков стало ${n1}, ожидалось ${n0 + 3}`);
-      ok((await title(page)).includes(String(n0 + 3)), 'заголовок показывает новое число блоков');
-      const after = await texts(page);
-      const all = after.join(' ');
-      ok(all.replace(/\s+/g, ' ') === before.join(' '), 'текст блоков в сумме не изменился');
-      ok(new Set(await ids(page)).size === n1, 'id блоков уникальны');
+      const idsBefore = await ids(page);
+      ok(!(await modeOn(page)) && (await rows(page).count()) === 0, 'до включения режима кнопок разреза нет');
+      ok((await page.getByRole('button', { name: 'Разрезать', exact: true }).count()) === 0, 'отдельных кнопок «Разрезать» под блоками нет');
+
+      await enable(ctx);
+      ok(await modeOn(page), 'кнопка «Режим разреза» стала «Готово»');
+      ok(await page.getByText(HINT).isVisible(), 'сверху подсказка «Нажми на кнопку между предложениями…»');
+      ok((await rows(page).count()) === CUT_POINTS, `во всех блоках сразу все точки разреза: ${await rows(page).count()} из ${CUT_POINTS}`);
+      ok(await page.getByText(INTRO).isVisible(), 'при первом включении есть одноразовое пояснение');
+      await page.screenshot({ path: `${OUT}/split-cut-mode-${mode}-360.png` });
+
+      let expected = n0;
+      let shotDone = false;
+      for (const k of [0, 2, 4, 7]) {
+        const li = page.locator(`li[data-block-id="${idsBefore[k]}"]`);
+        const row = li.locator('.cut-row').first();
+        // Первый блок у верхнего края и так на экране: не прокручиваем, чтобы снимок «сразу после разреза» показал заголовок и сообщение.
+        const seen = k === 0 ? await row.boundingBox() : null;
+        if (!seen || seen.y < 60 || seen.y + seen.height > 740 - 80) {
+          await settle(li);
+          await row.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+          await page.waitForTimeout(100);
+        }
+        const scroll0 = await page.evaluate(() => Math.round(scrollY));
+        await press(ctx, row);
+        expected++;
+        ok((await count(page)) === expected, `блок ${k + 1}: блоков стало ${expected}`);
+        ok(await modeOn(page), `блок ${k + 1}: режим остался включённым`);
+        ok((await title(page)).includes(String(expected)), `блок ${k + 1}: заголовок показывает ${expected}`);
+        ok(await status(page).filter({ hasText: `Блок разрезан, теперь блоков: ${expected}` }).count() === 1, `блок ${k + 1}: «Блок разрезан, теперь блоков: ${expected}»`);
+        const flash = await items(page).evaluateAll((els) => els.map((e, i) => (e.hasAttribute('data-flash') ? i : -1)).filter((i) => i >= 0));
+        const at = (await ids(page)).indexOf(idsBefore[k]);
+        ok(flash.length === 1 && flash[0] === at + 1, `блок ${k + 1}: подсвечена только правая часть`);
+        const focus = await page.evaluate(() => {
+          const a = document.activeElement;
+          return { row: !!a?.classList.contains('cut-row'), mode: a?.textContent === 'Готово', blockIndex: a?.closest('li') ? [...document.querySelectorAll('li[data-block-id]')].indexOf(a.closest('li')) : -1 };
+        });
+        ok(focus.row || focus.mode, `блок ${k + 1}: фокус остался на кнопке разреза или режима`);
+        if (focus.row) ok(focus.blockIndex === at || focus.blockIndex === at + 1, `блок ${k + 1}: фокус рядом с местом разреза (${focus.blockIndex})`);
+        const scroll1 = await page.evaluate(() => Math.round(scrollY));
+        ok(Math.abs(scroll1 - scroll0) <= 1, `блок ${k + 1}: экран не прыгнул (${scroll0} → ${scroll1})`);
+        if (!shotDone) {
+          shotDone = true;
+          await page.screenshot({ path: `${OUT}/split-after-cut-${mode}-360.png` });
+        }
+      }
+      // Правая часть блока 1 ещё раз.
+      const right = items(page).nth(1);
+      ok((await right.locator('.cut-row').count()) === 1, 'у правой части блока 1 осталась одна точка разреза');
+      await cutRow(ctx, right, 0);
+      expected++;
+      ok(expected === n0 + 5 && (await count(page)) === n0 + 5, `блоков стало ${await count(page)}, ожидалось ${n0 + 5}`);
+      ok((await texts(page)).join(' ').replace(/\s+/g, ' ') === before.join(' '), 'текст блоков в сумме не изменился');
+      ok(new Set(await ids(page)).size === n0 + 5, 'id блоков уникальны');
+      await page.waitForTimeout(1100);
+      ok((await items(page).evaluateAll((els) => els.filter((e) => e.hasAttribute('data-flash')).length)) === 0, 'через секунду подсветка погасла');
+      await page.waitForTimeout(2200);
+      ok((await status(page).count()) === 0, 'через 3 секунды сообщение о разрезе исчезло');
+      ok(await modeOn(page), 'режим всё ещё включён, пока пользователь не вышел сам');
+
+      await finishMode(ctx);
+      ok(!(await modeOn(page)) && (await rows(page).count()) === 0, '«Готово» выключает режим');
       await flushed(page);
-      ok((await storedTexts(page)).length === n0 + 3, 'в хранилище тоже +3 блока');
-      await shoot(page, `a-${mode}-after-cuts`);
+      ok((await stored(page)).blocks.length === n0 + 5, 'в хранилище +5 блоков');
       await reload(page);
-      ok((await count(page)) === n0 + 3, 'после перезагрузки те же +3 блока');
-      await shoot(page, `a-${mode}-after-reload`);
+      ok((await count(page)) === n0 + 5, 'после перезагрузки все 5 разрезов на месте');
+      ok(!(await modeOn(page)), 'после перезагрузки режим выключен');
+
+      await page.getByRole('button', { name: 'Начать', exact: true }).click();
+      await page.getByText(`1 из ${n0 + 5}`).first().waitFor({ timeout: 5000 });
+      ok(true, `сессия показывает «1 из ${n0 + 5}»`);
     });
 
-    // б) два разреза подряд в одном блоке.
-    await run('б) два разреза в одном блоке', mode, async (ctx, ok) => {
+    // б) регрессия пользователя: включил режим, не нажимал на строки, вышел: разрезов нет. Потом с нажатием.
+    await run('б) регрессия: режим без нажатий, выход, затем с нажатием', mode, async (ctx, ok) => {
       const { page } = ctx;
       const n0 = await count(page);
-      // Сначала по второй точке (левая часть остаётся из двух предложений), потом по первой левой части.
-      await cut(ctx, 2, 1);
-      ok((await count(page)) === n0 + 1, 'после первого разреза +1');
-      await cut(ctx, 2, 0);
-      ok((await count(page)) === n0 + 2, 'после второго разреза +2');
-      // Для другого блока: сначала по первой точке, потом правая часть.
-      await cut(ctx, 5, 0);
-      await cut(ctx, 6, 0);
-      ok((await count(page)) === n0 + 4, 'и ещё два разреза в другом блоке: +4');
-      const t = await texts(page);
-      ok(t.slice(2, 5).every((x) => !/[.!?] \S/.test(x)), 'блоки 3–5 по одному предложению');
+      const t0 = await texts(page);
+      await enable(ctx);
+      ok((await rows(page).count()) === CUT_POINTS, 'режим включён, точки разреза видны');
+      if (mode === 'keyboard') {
+        await page.keyboard.press('Escape');
+        ok(!(await modeOn(page)), 'Esc выходит из режима');
+        await enable(ctx);
+      }
+      await finishMode(ctx);
+      ok(!(await modeOn(page)), 'вышли кнопкой «Готово»');
+      ok((await count(page)) === n0 && JSON.stringify(await texts(page)) === JSON.stringify(t0), 'без нажатий на строки разрезов нет');
+      await flushed(page);
+      ok((await stored(page)).blocks.length === n0, 'и в хранилище блоков столько же');
+      await enable(ctx);
+      await cutRow(ctx, items(page).nth(2), 0);
+      ok((await count(page)) === n0 + 1, 'с нажатием на строку разрез есть');
+      await finishMode(ctx);
       await flushed(page);
       await reload(page);
-      ok((await count(page)) === n0 + 4, 'после перезагрузки +4');
-      ok(JSON.stringify(await texts(page)) === JSON.stringify(t), 'тексты блоков те же');
+      ok((await count(page)) === n0 + 1, 'и он пережил перезагрузку');
     });
 
-    // в) два разных блока и перезагрузка: блоки и фразы те же.
-    await run('в) разрез в двух блоках и перезагрузка', mode, async (ctx, ok) => {
+    // в) документ из скриншота пользователя: 3 блока, в первом ровно одна точка разреза.
+    await run('в) документ из 3 блоков: в первом одна точка', mode, async (ctx, ok) => {
+      const { page } = ctx;
+      ok((await count(page)) === 3, 'на Split 3 блока');
+      await enable(ctx);
+      const first = items(page).nth(0);
+      ok((await first.locator('.cut-row').count()) === 1, 'в блоке «В современном мире…» одна точка разреза');
+      ok((await rows(page).count()) === 1, 'во всём документе одна точка');
+      ok((await page.locator('[data-cut-none]').filter({ hasText: 'одно предложение' }).count()) === 2, 'у двух других блоков приглушённая подпись «одно предложение»');
+      await page.screenshot({ path: `${OUT}/split-3blocks-${mode}-360.png` });
+      await cutRow(ctx, first, 0);
+      ok((await count(page)) === 4, 'после разреза 4 блока');
+      ok((await rows(page).count()) === 0, 'точек разреза больше нет, режим при этом включён');
+      ok(await modeOn(page), 'режим остаётся включённым до «Готово»');
+    }, { doc: makeDoc({ id: 'shot-doc', sources: SHOT_SOURCES, texts: [], status: 'pending' }) });
+
+    // г) нет точек разреза: кнопка неактивна с подписью.
+    await run('г) блоки по одному предложению: режим неактивен', mode, async (ctx, ok) => {
+      const { page } = ctx;
+      const btn = toggle(ctx.page, 'Режим разреза');
+      ok(await btn.isDisabled(), 'кнопка «Режим разреза» неактивна');
+      ok(await page.getByText('в блоках по одному предложению').isVisible(), 'рядом подпись «в блоках по одному предложению»');
+      await page.screenshot({ path: `${OUT}/split-no-cut-points-${mode}-360.png` });
+    }, { doc: makeDoc({ id: 'one-doc', sources: SHOT_SOURCES.slice(1), texts: [], status: 'pending' }) });
+
+    // д) пояснение один раз, отмена в режиме, выход по Esc, «Начать» и смена размера.
+    await run('д) пояснение один раз, «Отменить действие», Esc, смена размера', mode, async (ctx, ok) => {
       const { page } = ctx;
       const n0 = await count(page);
-      await cut(ctx, 1);
-      await cut(ctx, 6);
-      const t = await texts(page);
-      const m = await markers(page);
-      ok(t.length === n0 + 2, `после двух разрезов ${t.length} блоков`);
+      const undo = page.getByRole('button', { name: 'Отменить действие', exact: true });
+      ok(await undo.isDisabled(), '«Отменить действие» неактивна, пока нечего отменять');
+      ok((await undo.locator('svg').count()) === 1, 'у «Отменить действие» есть иконка возврата');
+      await enable(ctx);
+      ok(await page.getByText(INTRO).isVisible(), 'первое включение: пояснение показано');
+      await finishMode(ctx);
+      await enable(ctx);
+      ok((await page.getByText(INTRO).count()) === 0, 'второе включение: пояснения нет');
       await flushed(page);
       await reload(page);
-      ok(JSON.stringify(await texts(page)) === JSON.stringify(t), 'тексты блоков после перезагрузки те же');
-      ok(JSON.stringify(await markers(page)) === JSON.stringify(m), 'ключевые фразы после перезагрузки те же');
-    });
+      await enable(ctx);
+      ok((await page.getByText(INTRO).count()) === 0, 'после перезагрузки пояснение тоже не возвращается (cutIntroSeen в настройках)');
 
-    // г) выход на Home и повторное открытие.
-    await run('г) выход на Home и повторное открытие', mode, async (ctx, ok) => {
-      const { page } = ctx;
-      const n0 = await count(page);
-      await cut(ctx, 0);
-      await cut(ctx, 4);
-      const t = await texts(page);
-      await page.getByRole('button', { name: /Назад/ }).click();
-      await page.getByText('Твои тексты').waitFor();
+      await cutRow(ctx, items(page).nth(1), 0);
+      await cutRow(ctx, items(page).nth(4), 0);
+      ok((await count(page)) === n0 + 2, 'два разреза в разных блоках');
+      ok(await undo.isEnabled(), '«Отменить действие» стала активна');
+      await press(ctx, undo);
+      ok((await count(page)) === n0 + 1 && (await modeOn(page)), 'отмена вернула последний разрез, режим остался включённым');
+      ok((await status(page).count()) === 0, 'сообщение о разрезе после отмены убрано');
+      await cutRow(ctx, items(page).nth(4), 0);
+      ok((await count(page)) === n0 + 2, 'после отмены режим продолжает резать');
+      await page.keyboard.press('Escape');
+      ok(!(await modeOn(page)), 'Esc выходит из режима');
+      if (mode === 'keyboard') {
+        await enable(ctx);
+        await page.keyboard.press('Control+z');
+        ok((await count(page)) === n0 + 1 && (await modeOn(page)), 'Ctrl+Z тоже отменяет, режим остаётся');
+        await page.keyboard.press('Escape');
+      } else {
+        await enable(ctx);
+        await finishMode(ctx);
+      }
+      // Смена размера выключает режим: подтверждение стирает разрезы.
+      await enable(ctx);
+      await press(ctx, page.getByRole('radio', { name: 'Длинные' }).or(page.getByRole('button', { name: 'Длинные' })).first());
+      await press(ctx, page.getByRole('button', { name: 'Сменить размер' }));
+      ok(!(await modeOn(page)), 'смена размера выключила режим');
+      // «Начать» тоже: сессия открывается, при возврате режим выключен.
+      await enable(ctx);
+      await press(ctx, page.getByRole('button', { name: 'Начать', exact: true }));
+      await page.getByText(/^1 из \d+/).first().waitFor({ timeout: 5000 });
+      await page.getByRole('button', { name: 'Мои тексты' }).click();
       await page.locator('li button, li a, li [role="button"]').filter({ hasText: /Продолжить|Открыть/ }).first().click();
       await page.locator('li[data-block-id]').first().waitFor();
-      ok((await count(page)) === n0 + 2, 'после повторного открытия +2 блока');
-      ok(JSON.stringify(await texts(page)) === JSON.stringify(t), 'тексты те же');
+      ok(!(await modeOn(page)), '«Начать» и возврат на экран: режим выключен');
     });
 
-    // д) «Начать»: сессия идёт по новым блокам, Result показывает их же.
-    await run('д) Начать: сессия и Result по новым блокам', mode, async (ctx, ok) => {
+    // е) вид строки разреза: кнопка с ножницами, высота 40+, контур цветом ink, aria-label, состояния фокуса.
+    await run('е) вид и доступность строки разреза', mode, async (ctx, ok) => {
       const { page } = ctx;
-      const n0 = await count(page);
-      await cut(ctx, 0);
-      await cut(ctx, 3);
-      await closeCutMode(ctx);
-      const total = n0 + 2;
-      await page.getByRole('button', { name: 'Начать', exact: true }).click();
-      await page.getByText(`1 из ${total}`).first().waitFor({ timeout: 5000 });
-      ok(true, `сессия показывает «1 из ${total}»`);
-      const sessionDoc = await (async () => {
-        await page.waitForTimeout(900);
-        return stored(page);
-      })();
-      ok(sessionDoc.blocks.length === total, 'в хранилище к моменту старта сессии те же блоки');
-      for (let i = 0; i < total; i++) {
-        await page.getByRole('button', { name: 'Запомнил' }).click();
-        const field = page.locator('textarea');
-        await field.waitFor({ timeout: 5000 });
-        await page.waitForTimeout(1400); // растворение блока
-        await field.focus();
-        await page.keyboard.type(`Мой пересказ номер ${i + 1}, написанный своими словами.`);
-        await page.getByRole('button', { name: /^Готово/ }).click();
-        await page.waitForTimeout(100);
-      }
-      await page.getByRole('heading', { name: 'Готово' }).waitFor({ timeout: 8000 });
-      ok(await page.getByText(`${total} блоков`).first().isVisible().catch(() => false), `Result показывает «${total} блоков»`);
-    });
-
-    // е) смена размера: с подтверждением разрезы пропадают, без (отмена) остаются.
-    await run('е) смена размера блоков', mode, async (ctx, ok) => {
-      const { page } = ctx;
-      const n0 = await count(page);
-      await cut(ctx, 0);
-      await cut(ctx, 5);
-      await closeCutMode(ctx);
-      const t = await texts(page);
-      await page.getByRole('radio', { name: 'Длинные' }).or(page.getByRole('button', { name: 'Длинные' })).first().click();
-      await page.getByRole('button', { name: 'Оставить как есть' }).click();
-      ok(JSON.stringify(await texts(page)) === JSON.stringify(t), 'отмена смены размера: разрезы остались');
-      await flushed(page);
-      await reload(page);
-      ok((await count(page)) === n0 + 2, 'и после перезагрузки остались');
-      await page.getByRole('radio', { name: 'Длинные' }).or(page.getByRole('button', { name: 'Длинные' })).first().click();
-      await page.getByRole('button', { name: 'Сменить размер' }).click();
-      await page.waitForTimeout(300);
-      const after = await count(page);
-      ok(after !== n0 + 2 || JSON.stringify(await texts(page)) !== JSON.stringify(t), 'подтверждение: разрезы пропали (разбивка пересчитана)');
-      await flushed(page);
-      await reload(page);
-      ok((await count(page)) === after, 'пересчитанная разбивка пережила перезагрузку');
-    });
-
-    // ж) «Отменить» и Ctrl/Cmd+Z.
-    await run('ж) Отменить и Ctrl+Z', mode, async (ctx, ok) => {
-      const { page } = ctx;
-      const n0 = await count(page);
-      await cut(ctx, 2);
-      await closeCutMode(ctx);
-      ok((await count(page)) === n0 + 1, 'разрез: +1');
-      await page.getByRole('button', { name: 'Отменить', exact: true }).click();
-      ok((await count(page)) === n0, '«Отменить»: вернулось');
-      await cut(ctx, 2);
-      await closeCutMode(ctx);
-      ok((await count(page)) === n0 + 1, 'повторный разрез снова работает');
-      await page.locator('h1').focus();
-      await page.keyboard.press('Control+z');
-      ok((await count(page)) === n0, 'Ctrl+Z: вернулось');
-      await cut(ctx, 4);
-      await closeCutMode(ctx);
-      ok((await count(page)) === n0 + 1, 'разрез после Ctrl+Z работает');
-      const t = await texts(page);
-      await flushed(page);
-      await reload(page);
-      ok(JSON.stringify(await texts(page)) === JSON.stringify(t), 'после перезагрузки сохранилось текущее состояние');
-    });
-
-    // з) быстрый разрез и немедленная перезагрузка.
-    await run('з) разрез и немедленная перезагрузка', mode, async (ctx, ok) => {
-      const { page } = ctx;
-      const n0 = await count(page);
-      await cut(ctx, 1);
-      await cut(ctx, 3);
-      await page.reload();
-      await page.locator('li[data-block-id]').first().waitFor();
-      ok((await count(page)) === n0 + 2, 'разрезы сохранены без паузы');
-    });
-  }
-
-  // Режим разреза (SPEC §3.2): явный и предсказуемый.
-  for (const mode of MODES) {
-    const pressed = (page) => page.locator('[data-action="cut"][aria-pressed="true"]');
-    const place = (page, i) => items(page).nth(i).evaluate((el) => ({ scroll: Math.round(scrollY), top: Math.round(el.getBoundingClientRect().top) }));
-
-    await run('и) режим остаётся после разреза, Esc и «Отмена»', mode, async (ctx, ok) => {
-      const { page } = ctx;
-      if (mode === 'mouse') {
-        // Мышь режет кликом по месту без режима и режим не включает.
-        const n0 = await count(page);
-        await cut(ctx, 3);
-        ok((await count(page)) === n0 + 1, 'клик по месту разреза режет сразу, без режима');
-        ok((await pressed(page).count()) === 0, 'и режим «Разрезать» при этом не включается');
-        return;
-      }
-      const n0 = await count(page);
-      await cut(ctx, 3, 0); // первый разрез: режим открыт
-      ok((await count(page)) === n0 + 1, 'первый разрез: +1');
-      ok((await pressed(page).count()) === 1, 'режим остался открытым после разреза');
-      // Режем дальше без повторного нажатия на «Разрезать»: теперь режим на блоке с оставшейся точкой.
-      const open = items(page).filter({ has: page.locator('[data-action="cut"][aria-pressed="true"]') });
-      const rows = open.locator('.cut-row');
-      ok((await rows.count()) === 1, 'у блока с открытым режимом осталась одна точка разреза');
-      if (mode === 'touch') await rows.first().tap();
-      else {
-        await rows.first().focus();
-        await page.keyboard.press('Enter');
-      }
-      await page.waitForTimeout(150);
-      ok((await count(page)) === n0 + 2, 'второй разрез подряд без повторного включения: +2, блок на три части');
-      ok((await pressed(page).count()) === 0, 'когда резать больше негде, режим закрылся');
-
-      // Esc закрывает режим (клавиатура), «Отмена» закрывает (касание).
-      const li = items(page).nth(0);
-      await li.scrollIntoViewIfNeeded();
-      const toggle = li.locator('[data-action="cut"]');
-      if (mode === 'keyboard') {
-        await toggle.focus();
-        await page.keyboard.press('Enter');
-        ok((await pressed(page).count()) === 1, 'Enter на «Разрезать» включает режим');
-        await page.keyboard.press('Escape');
-        ok((await pressed(page).count()) === 0, 'Esc выключает режим');
-      } else {
-        await toggle.tap();
-        ok((await pressed(page).count()) === 1, 'касание «Разрезать» включает режим');
-        await li.locator('[data-action="cut"]').tap();
-        ok((await pressed(page).count()) === 0, '«Отмена» выключает режим');
-        // Касание по тексту между предложениями разрез не делает.
-        const before = await count(page);
-        const gap = li.locator('.cut-gap').first();
-        await gap.tap({ force: true });
-        ok((await count(page)) === before, 'касание по тексту разрез не делает');
-      }
-    });
-
-    await run('к) переключение режима на другой блок без потери разреза', mode, async (ctx, ok) => {
-      const { page } = ctx;
-      if (mode === 'mouse') return;
-      const n0 = await count(page);
-      await cut(ctx, 1, 0);
-      ok((await pressed(page).count()) === 1, 'режим открыт после первого разреза');
-      const second = items(page).nth(4);
-      await second.scrollIntoViewIfNeeded();
-      const toggle = second.locator('[data-action="cut"]');
-      if (mode === 'touch') await toggle.tap();
-      else {
-        await toggle.focus();
-        await page.keyboard.press('Enter');
-      }
-      await page.waitForTimeout(150);
-      const open = await pressed(page).count();
-      ok(open === 1 && (await second.locator('[data-action="cut"][aria-pressed="true"]').count()) === 1, 'режим переключился на другой блок, открыт только он');
-      ok((await count(page)) === n0 + 1, 'первый разрез на месте');
-      await cut(ctx, 4, 0);
-      ok((await count(page)) === n0 + 2, 'в другом блоке режет');
-      await flushed(page);
-      await reload(page);
-      ok((await count(page)) === n0 + 2, 'оба разреза пережили перезагрузку');
-    });
-
-    await run('л) блок без точек разреза: кнопка неактивна с причиной', mode, async (ctx, ok) => {
-      const { page } = ctx;
-      await cut(ctx, 0, 0);
-      await cut(ctx, 1, 0);
-      await closeCutMode(ctx);
-      const li = items(page).nth(0);
-      const btn = li.locator('[data-action="cut"]');
-      ok(await btn.isDisabled(), 'у блока из одного предложения «Разрезать» неактивна');
-      ok(((await li.innerText()) + (await li.textContent())).includes('в блоке одно предложение'), 'рядом подпись «в блоке одно предложение»');
-      const other = items(page).nth(5).locator('[data-action="cut"]');
-      ok(await other.isEnabled(), 'у блока с несколькими предложениями активна');
-    });
-
-    await run('м) после разреза экран не прыгает, фокус у места разреза', mode, async (ctx, ok) => {
-      const { page } = ctx;
-      const i = 6;
-      await items(page).nth(i).scrollIntoViewIfNeeded();
-      await page.waitForTimeout(400);
-      const before = await place(page, i);
-      await cut(ctx, i, 0);
-      const after = await place(page, i);
-      ok(Math.abs(before.scroll - after.scroll) <= 1 && Math.abs(before.top - after.top) <= 1, `прокрутка и положение блока не изменились (${JSON.stringify(before)} → ${JSON.stringify(after)})`);
-      const inBlock = await page.evaluate(() => {
-        const a = document.activeElement;
-        return a && a.closest('li[data-block-id]') ? [...document.querySelectorAll('li[data-block-id]')].indexOf(a.closest('li[data-block-id]')) : -1;
+      await enable(ctx);
+      const row = rows(page).first();
+      const box = await row.boundingBox();
+      ok(box.height >= 40, `высота ${box.height} px (не меньше 40)`);
+      ok(box.x >= 0 && box.x + box.width <= 360, `в 360 px помещается (x=${box.x}, w=${box.width})`);
+      ok((await row.innerText()).trim() === 'Разрезать здесь', 'подпись «Разрезать здесь»');
+      ok((await row.locator('svg').count()) === 1, 'иконка ножниц (svg)');
+      const label = await row.getAttribute('aria-label');
+      ok(label === 'Разрезать блок здесь, после предложения: Абзац 1 предложение 1 про река', `aria-label: «${label}»`);
+      const css = await row.evaluate((el) => {
+        const probe = document.createElement('i');
+        probe.style.color = 'var(--ink)';
+        document.body.append(probe);
+        const ink = getComputedStyle(probe).color;
+        probe.remove();
+        const s = getComputedStyle(el);
+        return { ink, border: s.borderTopColor, width: s.borderTopWidth, style: s.borderTopStyle };
       });
-      ok(inBlock === i || inBlock === i + 1, `фокус остался в разрезанном блоке (индекс ${inBlock})`);
-      const move = await place(page, i);
-      ok(Math.abs(move.scroll - before.scroll) <= 1, 'после фокуса прокрутка тоже на месте');
+      ok(css.border === css.ink && css.width === '1px' && css.style === 'solid', `контурная рамка цветом --ink (${css.border} = ${css.ink})`);
+      // С клавиатуры: Tab от кнопки режима доходит до строки (сначала могут встретиться маркеры фраз).
+      await toggle(page, 'Готово').focus();
+      for (let k = 0; k < 12 && !(await page.evaluate(() => document.activeElement?.classList.contains('cut-row'))); k++) await page.keyboard.press('Tab');
+      const outline = await page.evaluate(() => (document.activeElement?.classList.contains('cut-row') ? getComputedStyle(document.activeElement).outlineStyle : 'none'));
+      ok(outline !== 'none', 'у сфокусированной строки виден контур фокуса');
     });
+
+    // ж) мышь: клик по месту между предложениями режет и без режима; режим при этом не включается.
+    if (mode === 'mouse') {
+      await run('ж) мышь без режима: клик по месту режет, режим не включается', mode, async (ctx, ok) => {
+        const { page } = ctx;
+        const n0 = await count(page);
+        const li = items(page).nth(3);
+        await settle(li);
+        const gap = li.locator('.cut-gap').first();
+        const pos = await gap.evaluate((el) => {
+          const rect = el.getClientRects()[0];
+          return { x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2) };
+        });
+        await page.mouse.move(pos.x, pos.y);
+        await page.mouse.click(pos.x, pos.y);
+        await page.waitForTimeout(150);
+        ok((await count(page)) === n0 + 1, 'клик по месту разреза режет сразу');
+        ok(!(await modeOn(page)), 'режим при этом не включился');
+      });
+    }
   }
 
-  await new Promise((res) => setTimeout(res, 0));
+  // з) reduced motion: подсветка правой части без анимации.
+  {
+    const browser = await chromium.launch();
+    const ctx = await browser.newContext({ viewport: { width: 360, height: 740 }, reducedMotion: 'reduce', colorScheme: 'dark' });
+    await ctx.route((u) => u.protocol.startsWith('http') && u.hostname !== '127.0.0.1', (route) => route.abort());
+    const page = await ctx.newPage();
+    await page.goto(BASE);
+    await page.locator('textarea').fill(SOURCE);
+    await page.getByRole('button', { name: 'Начать', exact: true }).click();
+    await page.locator('li[data-block-id]').first().waitFor();
+    await toggle(page, 'Режим разреза').click();
+    await rows(page).first().click();
+    await page.waitForTimeout(100);
+    const flash = await page.locator('li[data-flash]').evaluate((el) => {
+      const s = getComputedStyle(el);
+      const probe = document.createElement('i');
+      probe.style.backgroundColor = 'var(--surface)';
+      document.body.append(probe);
+      const surface = getComputedStyle(probe).backgroundColor;
+      probe.remove();
+      return { anim: s.animationName, bg: s.backgroundColor, surface };
+    });
+    r.ok(flash.anim === 'none' && flash.bg === flash.surface, `[reduced motion] подсветка без анимации, фон --surface (${JSON.stringify(flash)})`);
+    await browser.close();
+  }
+
   console.log(r.failed ? `\nПровалено проверок: ${r.failed}` : '\nВсе проверки прошли');
   process.exit(r.failed ? 1 : 0);
 })();

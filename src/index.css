@@ -288,36 +288,51 @@
       opacity: 1;
     }
   }
+  /* Кнопка разреза в режиме разреза: контурная кнопка с ножницами, не похожа ни на маркер ключевых фраз,
+     ни на подчёркивания шаблонов исходника. */
   .cut-row {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
+    justify-content: center;
+    gap: 0.5rem;
     width: 100%;
     min-height: 40px;
-    color: var(--text-dim);
+    margin-block: 0.5rem;
+    border: 1px solid var(--ink);
+    border-radius: var(--radius-surface);
+    background: transparent;
+    color: var(--ink);
     font-family: var(--font-sans);
     font-size: 13px;
     line-height: 1;
     cursor: pointer;
-    transition: color 120ms var(--ease-standard);
-  }
-  .cut-row::before,
-  .cut-row::after {
-    content: '';
-    flex: 1;
-    height: 1px;
-    background: var(--line);
-    transition: background-color 120ms var(--ease-standard);
+    transition:
+      background-color 120ms var(--ease-standard),
+      color 120ms var(--ease-standard);
   }
   .cut-row:hover,
   .cut-row:focus-visible {
-    color: var(--ink);
+    background: var(--surface);
+    color: var(--text);
   }
-  .cut-row:hover::before,
-  .cut-row:hover::after,
-  .cut-row:focus-visible::before,
-  .cut-row:focus-visible::after {
-    background: var(--ink);
+
+  /* Правая часть только что сделанного разреза: фон --surface 800 мс. При reduced motion без анимации. */
+  @keyframes cut-flash {
+    from {
+      background-color: var(--surface);
+    }
+    to {
+      background-color: transparent;
+    }
+  }
+  .block-item[data-flash] {
+    animation: cut-flash 800ms var(--ease-standard) both;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .block-item[data-flash] {
+      animation: none !important;
+      background-color: var(--surface);
+    }
   }
 
   /* Действия блока: на устройствах с наведением видны при наведении и фокусе, на сенсорных всегда. */

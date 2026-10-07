@@ -16,6 +16,7 @@ export const DEFAULT_SETTINGS: Settings = {
   allowPaste: false,
   writingFont: 'serif',
   hintsIntroSeen: false,
+  cutIntroSeen: false,
 };
 
 const TITLE_WORDS = 6;
@@ -142,5 +143,6 @@ export function normalizeSettings(raw: unknown): Settings {
     allowPaste: typeof r.allowPaste === 'boolean' ? r.allowPaste : d.allowPaste,
     writingFont: oneOf(r.writingFont, ['serif', 'mono'], d.writingFont),
     hintsIntroSeen: typeof r.hintsIntroSeen === 'boolean' ? r.hintsIntroSeen : d.hintsIntroSeen,
+    cutIntroSeen: typeof r.cutIntroSeen === 'boolean' ? r.cutIntroSeen : d.cutIntroSeen,
   };
 }

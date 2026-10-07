@@ -5,7 +5,8 @@ import {
   buildSegments,
   cutDocBlock,
   cutGaps,
-  cutModeTarget,
+  cutFocusTarget,
+  hasCutPoint,
   hasProgress,
   mergeBlocks,
   mergeDocBlocks,
@@ -418,16 +419,28 @@ describe('последовательные разрезы (регрессия: �
     expect(r.keyphrases.length).toBeGreaterThanOrEqual(3);
   });
 
-  it('cutModeTarget: режим остаётся в том же блоке, пока в нём есть точки, затем переходит к правой части, затем закрывается', () => {
+  it('cutFocusTarget: после разреза фокус идёт к первой точке правой части, иначе к последней точке левой, иначе никуда', () => {
     const start = docOf();
     const id = start.blocks[0]!.id;
-    const first = cutById(start, id, 1); // слева два предложения: точка ещё есть
-    expect(cutModeTarget(first, id, 'ru')).toBe(id);
-    const second = cutById(first, id, 0); // слева одно предложение, справа тоже одно
-    expect(cutModeTarget(second, id, 'ru')).toBeNull();
-    const viaLeft = cutById(start, id, 0); // слева одно предложение, справа два
-    expect(cutModeTarget(viaLeft, id, 'ru')).toBe(viaLeft.blocks[1]!.id);
-    expect(cutModeTarget(viaLeft, 'нет-такого', 'ru')).toBeNull();
+    const viaLeft = cutById(start, id, 0); // слева одно предложение, справа два: точка в правой части
+    expect(cutFocusTarget(viaLeft, id, 'ru')).toEqual({ blockId: viaLeft.blocks[1]!.id, gap: 'first' });
+    const first = cutById(start, id, 1); // слева два предложения, справа одно: точка в левой части
+    expect(cutFocusTarget(first, id, 'ru')).toEqual({ blockId: id, gap: 'last' });
+    const second = cutById(first, id, 0); // и слева, и справа по одному предложению
+    expect(cutFocusTarget(second, id, 'ru')).toBeNull();
+    expect(cutFocusTarget(viaLeft, 'нет-такого', 'ru')).toBeNull();
+  });
+
+  it('hasCutPoint: есть, пока хоть в одном блоке два предложения; пропадает, когда все блоки по одному предложению', () => {
+    let doc = docOf();
+    const nid = fresh();
+    expect(hasCutPoint(doc.blocks, 'ru')).toBe(true);
+    // режем всё до конца: на каждом шаге берём первый блок, в котором ещё есть точка
+    for (let guard = 0; guard < 200 && hasCutPoint(doc.blocks, 'ru'); guard++) {
+      const b = doc.blocks.find((x) => cutGaps(x.sourceText, 'ru', x.keyphrases).length > 0)!;
+      doc = cutById(doc, b.id, 0, nid);
+    }
+    expect(hasCutPoint(doc.blocks, 'ru')).toBe(false);
   });
 
   it('заголовок после разреза: левая часть остаётся заголовком, правая становится обычным текстом', () => {

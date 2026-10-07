@@ -16,6 +16,7 @@ export function App() {
   const screen = useApp((s) => s.screen);
   const theme = useApp((s) => s.settings.theme);
   const ready = useApp((s) => s.ready);
+  const editMode = useApp((s) => s.editMode);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -32,13 +33,20 @@ export function App() {
     <div className="min-h-dvh bg-bg text-text">
       {/* В сессии шапка закрыта её слоем и не нужна; из порядка Tab она тоже убрана. */}
       <header hidden={screen === 'session'} className="flex items-center justify-between gap-2 px-4 py-2">
-        <button
-          type="button"
-          onClick={() => useApp.getState().openDocument(null, 'home')}
-          className="-ml-2 min-h-10 rounded-surface px-2 text-ui font-medium transition-colors duration-[120ms] hover:text-ink"
-        >
-          {ru.appName}
-        </button>
+        <div className="flex min-w-0 flex-wrap items-center gap-x-3">
+          <button
+            type="button"
+            aria-label={ru.goHome}
+            onClick={() => useApp.getState().openDocument(null, 'home')}
+            className="-ml-2 min-h-10 rounded-surface px-2 text-ui font-medium transition-colors duration-[120ms] hover:text-ink"
+          >
+            {ru.appName}
+          </button>
+          {/* Где я сейчас: на каждом экране, кроме сессии (у неё свой слой). */}
+          <span className="text-meta text-text-dim" data-screen-label>
+            {screen === 'result' && editMode ? ru.screens.edit : ru.screens[screen]}
+          </span>
+        </div>
         {/* До загрузки настроек из базы панель не открываем: выбор перезаписали бы загруженные настройки.
             Кнопка невидима, но место держит, чтобы шапка не прыгала. */}
         <button

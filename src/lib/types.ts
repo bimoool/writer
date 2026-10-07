@@ -53,4 +53,6 @@ export interface Settings {
   writingFont: 'serif' | 'mono';
   /** Строка-намёк про подсказки на первом экране письма уже показана и закрыта первой открытой подсказкой. */
   hintsIntroSeen: boolean;
+  /** Пояснение при первом включении режима разреза на Split уже показано. */
+  cutIntroSeen: boolean;
 }

@@ -102,6 +102,11 @@ export function Result() {
   const editButton = useRef<HTMLButtonElement>(null);
   const edit = useResultEdit(doc, settings.allowPaste, lang, () => requestAnimationFrame(() => editButton.current?.focus()));
   const base = edit.frozen ?? doc;
+  // Шапка называет экран «Правка», пока режим включён.
+  useEffect(() => {
+    useApp.getState().setEditMode(edit.on);
+    return () => useApp.getState().setEditMode(false);
+  }, [edit.on]);
 
   // Проверка текста (SPEC §15): до нажатия «Проверить текст» ничего не считается.
   const check = useTextCheck(base);
@@ -195,138 +200,153 @@ export function Result() {
   };
 
   return (
-    <main className="mx-auto w-full max-w-[72rem] px-4 pb-20 pt-10">
-      <div className="flex flex-wrap items-baseline justify-between gap-x-4">
-        <h1 className="font-serif text-h1 text-text">{ru.result.title}</h1>
-      </div>
-      <p className="mt-1 text-ui text-text-dim">{ru.result.summary(doc.blocks.length)}</p>
-      <div className="mt-4 flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          className={secondary}
-          onClick={() => {
-            const { requestPasteFocus, openDocument } = useApp.getState();
-            requestPasteFocus(true);
-            openDocument(null, 'home');
-          }}
-        >
-          {ru.result.newText}
-        </button>
-        <button type="button" className={tertiary} onClick={() => useApp.getState().restartDocument(doc.id, ru.result.retrySuffix)}>
-          {ru.result.retry}
-        </button>
-      </div>
-
-      <section aria-label={ru.result.metrics} className="mt-8">
-        <MainMetric
-          label={ru.result.ownWords}
-          value={ownWords === null ? ru.result.none : ru.result.percent(ownWords)}
-          note={ownWords === null ? ru.result.ownWordsTooShort(metrics.wordsWritten) : ru.result.ownWordsNote}
-        />
-        <dl className="mt-5 flex flex-wrap gap-x-6 gap-y-2 border-t border-line pt-4">
-          <Stat label={ru.result.time} value={ru.duration(metrics.activeMs)} />
-          <Stat label={ru.result.words} value={String(metrics.wordsWritten)} />
-          <Stat
-            label={ru.result.hintsLabel}
-            value={ru.result.hintsValue(metrics.opens[1], metrics.opens[2], metrics.opens[3])}
-            note={metrics.opens[1] + metrics.opens[2] + metrics.opens[3] === 0 ? ru.result.hintsNone : undefined}
-          />
-          <Stat label={ru.result.peeks} value={String(metrics.peeks)} note={metrics.peeks === 0 ? ru.result.peeksNone : undefined} />
-          <Stat
-            label={ru.result.typedShare}
-            value={typed === null ? ru.result.none : ru.result.percent(typed)}
-            note={typed === null ? ru.result.typedShareNone : undefined}
-          />
-        </dl>
-      </section>
-
-      <section aria-labelledby={`${id}-export`} className="mt-10">
-        <h2 id={`${id}-export`} className="sr-only">
-          {ru.result.export}
-        </h2>
-        <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
-          <button type="button" className={primary} onClick={() => void copy()}>
-            {ru.result.copy}
+    <>
+      {edit.on && (
+        // Закреплена сверху: из режима правки всегда видно, как выйти и как уйти на главную.
+        <div role="region" aria-label={ru.edit.banner} className="sticky top-0 z-20 border-b border-line bg-bg">
+          <div className="mx-auto flex w-full max-w-[72rem] flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2">
+            <span className="text-ui font-medium text-text">{ru.edit.banner}</span>
+            <button type="button" onClick={edit.finish} className="min-h-10 rounded-surface bg-ink px-4 text-ui font-medium text-bg transition-colors duration-[120ms] hover:bg-ink-hover">
+              {ru.edit.done}
+            </button>
+            <button type="button" onClick={() => useApp.getState().go('home')} className="min-h-10 rounded-surface px-2 text-ui text-text-dim transition-colors duration-[120ms] hover:text-text">
+              {ru.edit.toList}
+            </button>
+          </div>
+        </div>
+      )}
+      <main className="mx-auto w-full max-w-[72rem] px-4 pb-20 pt-10">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-4">
+          <h1 className="font-serif text-h1 text-text">{ru.result.title}</h1>
+        </div>
+        <p className="mt-1 text-ui text-text-dim">{ru.result.summary(doc.blocks.length)}</p>
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            className={secondary}
+            onClick={() => useApp.getState().startNewText()}
+          >
+            {ru.result.newText}
           </button>
-          <fieldset className="flex items-center gap-1">
-            <legend className="sr-only">{ru.result.format}</legend>
-            {FORMATS.map((f) => (
-              <label
-                key={f}
-                className="flex min-h-10 cursor-pointer items-center rounded-surface px-3 text-ui text-text-dim transition-colors duration-[120ms] hover:text-text has-[:checked]:bg-surface has-[:checked]:text-text has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-ink"
-              >
-                <input
-                  type="radio"
-                  name={`${id}-format`}
-                  value={f}
-                  checked={format === f}
-                  onChange={() => setFormat(f)}
-                  className="sr-only"
-                />
-                {ru.result.ext(f)}
-              </label>
-            ))}
-          </fieldset>
+          <button type="button" className={tertiary} onClick={() => useApp.getState().restartDocument(doc.id, ru.result.retrySuffix)}>
+            {ru.result.retry}
+          </button>
         </div>
 
-        {format === 'md' && (
-          <label className="mt-3 flex min-h-10 w-fit cursor-pointer items-center gap-2 text-ui text-text">
-            <input
-              type="checkbox"
-              checked={withSource}
-              onChange={(e) => setWithSource(e.target.checked)}
-              aria-describedby={`${id}-with-source`}
-              className="size-4 accent-ink"
+        <section aria-label={ru.result.metrics} className="mt-8">
+          <MainMetric
+            label={ru.result.ownWords}
+            value={ownWords === null ? ru.result.none : ru.result.percent(ownWords)}
+            note={ownWords === null ? ru.result.ownWordsTooShort(metrics.wordsWritten) : ru.result.ownWordsNote}
+          />
+          <dl className="mt-5 flex flex-wrap gap-x-6 gap-y-2 border-t border-line pt-4">
+            <Stat label={ru.result.time} value={ru.duration(metrics.activeMs)} />
+            <Stat label={ru.result.words} value={String(metrics.wordsWritten)} />
+            <Stat
+              label={ru.result.hintsLabel}
+              value={ru.result.hintsValue(metrics.opens[1], metrics.opens[2], metrics.opens[3])}
+              note={metrics.opens[1] + metrics.opens[2] + metrics.opens[3] === 0 ? ru.result.hintsNone : undefined}
             />
-            {ru.result.withSource}
-          </label>
-        )}
-        {format === 'md' && (
-          <p id={`${id}-with-source`} className="pl-6 text-meta text-text-dim">
-            {ru.result.withSourceNote}
+            <Stat label={ru.result.peeks} value={String(metrics.peeks)} note={metrics.peeks === 0 ? ru.result.peeksNone : undefined} />
+            <Stat
+              label={ru.result.typedShare}
+              value={typed === null ? ru.result.none : ru.result.percent(typed)}
+              note={typed === null ? ru.result.typedShareNone : undefined}
+            />
+          </dl>
+        </section>
+
+        <section aria-labelledby={`${id}-export`} className="mt-10">
+          <h2 id={`${id}-export`} className="sr-only">
+            {ru.result.export}
+          </h2>
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+            <button type="button" className={primary} onClick={() => void copy()}>
+              {ru.result.copy}
+            </button>
+            <fieldset className="flex items-center gap-1">
+              <legend className="sr-only">{ru.result.format}</legend>
+              {FORMATS.map((f) => (
+                <label
+                  key={f}
+                  className="flex min-h-10 cursor-pointer items-center rounded-surface px-3 text-ui text-text-dim transition-colors duration-[120ms] hover:text-text has-[:checked]:bg-surface has-[:checked]:text-text has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-ink"
+                >
+                  <input
+                    type="radio"
+                    name={`${id}-format`}
+                    value={f}
+                    checked={format === f}
+                    onChange={() => setFormat(f)}
+                    className="sr-only"
+                  />
+                  {ru.result.ext(f)}
+                </label>
+              ))}
+            </fieldset>
+          </div>
+
+          {format === 'md' && (
+            <label className="mt-3 flex min-h-10 w-fit cursor-pointer items-center gap-2 text-ui text-text">
+              <input
+                type="checkbox"
+                checked={withSource}
+                onChange={(e) => setWithSource(e.target.checked)}
+                aria-describedby={`${id}-with-source`}
+                className="size-4 accent-ink"
+              />
+              {ru.result.withSource}
+            </label>
+          )}
+          {format === 'md' && (
+            <p id={`${id}-with-source`} className="pl-6 text-meta text-text-dim">
+              {ru.result.withSourceNote}
+            </p>
+          )}
+
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <button type="button" className={secondary} onClick={() => void download()}>
+              {ru.result.download(format)}
+            </button>
+            {shareable && (
+              <button type="button" className={secondary} onClick={() => void share()}>
+                {ru.result.share}
+              </button>
+            )}
+          </div>
+          <p role="status" className="mt-1 min-h-5 text-meta text-text-dim">
+            {notice ? notices[notice] : ''}
           </p>
-        )}
+        </section>
 
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <button type="button" className={secondary} onClick={() => void download()}>
-            {ru.result.download(format)}
-          </button>
-          {shareable && (
-            <button type="button" className={secondary} onClick={() => void share()}>
-              {ru.result.share}
-            </button>
-          )}
-        </div>
-        <p role="status" className="mt-1 min-h-5 text-meta text-text-dim">
-          {notice ? notices[notice] : ''}
-        </p>
-      </section>
+        <section aria-label={ru.check.title} className="mt-10">
+          <div className="flex flex-wrap items-center gap-2">
+            {!check.started && (
+              <button type="button" className={secondary} disabled={edit.on} onClick={check.start}>
+                {ru.check.run}
+              </button>
+            )}
+            {/* В режиме правки «Готово» живёт в закреплённой плашке сверху. */}
+            {!edit.on && (
+              <button ref={editButton} type="button" className={secondary} onClick={edit.start}>
+                {ru.edit.start}
+              </button>
+            )}
+          </div>
+          <p className="mt-2 max-w-[32rem] text-meta text-text-dim">{ru.edit.note}</p>
+          {!check.started && <p className="mt-1 max-w-[32rem] text-meta text-text-dim">{ru.check.runNote}</p>}
+          <p role="status" className="mt-1 min-h-5 max-w-[32rem] text-meta text-text-dim">
+            {edit.on ? (edit.api?.activeId ? '' : ru.edit.pick) : edit.restored ? ru.edit.restored : ''}
+          </p>
+          {edit.on && check.started && <p className="max-w-[32rem] text-meta text-text-dim">{ru.edit.paused}</p>}
+        </section>
 
-      <section aria-label={ru.check.title} className="mt-10">
-        <div className="flex flex-wrap items-center gap-2">
-          {!check.started && (
-            <button type="button" className={secondary} disabled={edit.on} onClick={check.start}>
-              {ru.check.run}
-            </button>
-          )}
-          <button ref={editButton} type="button" className={edit.on ? primary : secondary} aria-pressed={edit.on} onClick={edit.on ? edit.finish : edit.start}>
-            {edit.on ? ru.edit.done : ru.edit.start}
-          </button>
-        </div>
-        <p className="mt-2 max-w-[32rem] text-meta text-text-dim">{ru.edit.note}</p>
-        {!check.started && <p className="mt-1 max-w-[32rem] text-meta text-text-dim">{ru.check.runNote}</p>}
-        <p role="status" className="mt-1 min-h-5 max-w-[32rem] text-meta text-text-dim">
-          {edit.on ? (edit.api?.activeId ? '' : ru.edit.pick) : edit.restored ? ru.edit.restored : ''}
-        </p>
-        {edit.on && check.started && <p className="max-w-[32rem] text-meta text-text-dim">{ru.edit.paused}</p>}
-      </section>
+        {!edit.on && <CheckPanel check={view} />}
 
-      {!edit.on && <CheckPanel check={view} />}
-
-      <section aria-label={ru.result.compare} className="mt-10">
-        {wide ? <CompareTable blocks={doc.blocks} marks={marks} edit={edit.api} /> : <CompareTabs blocks={doc.blocks} marks={marks} edit={edit.api} side={side} setSide={setSide} />}
-      </section>
-      {active && <FindingCard check={view} finding={active} onClose={closeFinding} />}
-    </main>
+        <section aria-label={ru.result.compare} className="mt-10">
+          {wide ? <CompareTable blocks={doc.blocks} marks={marks} edit={edit.api} /> : <CompareTabs blocks={doc.blocks} marks={marks} edit={edit.api} side={side} setSide={setSide} />}
+        </section>
+        {active && <FindingCard check={view} finding={active} onClose={closeFinding} />}
+      </main>
+    </>
   );
 }
